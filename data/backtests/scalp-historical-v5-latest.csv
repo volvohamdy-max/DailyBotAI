@@ -1,0 +1,16 @@
+rank,strategy,label,qualified,tp,trades,wr,net_r,pf,exp,dd,mfe,mae
+1,GOLD_POWER,"🏆 Gold Power",true,3,12,33.33,3.80,1.466,0.316,5.07,1.561,0.947
+2,AGGRESSIVE_BREAKOUT_A,"🔥 Aggressive BREAKOUT-A",true,2,52,40.38,9.04,1.281,0.174,7.32,1.483,0.980
+3,EMA921,"⚡ EMA 9/21 Session Momentum",false,2,90,38.89,8.62,1.147,0.096,9.76,1.453,1.003
+4,LEGACY_BREAKOUT,"💥 Legacy Gold Scalper BREAKOUT",false,2,138,37.68,12.56,1.140,0.091,15.70,1.328,0.969
+5,LEGACY_ENTRY_ENGINE,"🧰 Legacy Scalp Entry Engine",false,2,144,37.50,10.40,1.110,0.072,18.20,1.359,0.992
+6,ASIA_SWEEP_NY,"🌏 Asia Sweep → NY",false,2,32,34.38,-0.18,0.992,-0.006,5.19,1.212,0.959
+7,LEGACY_STRICT,"🧱 Legacy Gold Scalper STRICT",false,2,87,34.48,-0.30,0.995,-0.003,19.26,1.260,1.014
+8,LEGACY_EARLY,"🌅 Legacy Gold Scalper EARLY",false,2,262,33.97,-13.30,0.928,-0.051,33.70,1.373,1.077
+9,TWO_B,"🎯 2B Liquidity Reversal",false,2,327,34.25,-31.51,0.869,-0.096,39.95,1.288,1.244
+10,V2_PULLBACK,"🔁 Gold Scalper V2 Pullback",false,2,8,25.00,-2.41,0.616,-0.301,4.22,0.944,1.101
+11,TREND_HUNTER,"🧭 Trend Hunter TECH",false,2,60,26.67,-14.65,0.681,-0.244,25.44,1.182,1.072
+12,SESSION_SWEEP_CHOCH,"💧 Session Sweep + CHoCH/FVG",false,1,12,33.33,-4.39,0.470,-0.366,5.37,0.707,0.975
+13,NEW_YORK,"🗽 New York",false,1.5,7,57.14,2.68,1.842,0.383,1.12,1.420,0.739
+14,LONDON_RETEST,"🇬🇧 London Breakout Retest",false,1.5,6,33.33,-1.36,0.682,-0.227,3.13,1.401,0.801
+15,CONSOLIDATION_SWEEP,"🪤 Consolidation Sweep Reversal",false,1.5,6,50.00,0.92,1.273,0.154,3.38,1.429,0.879

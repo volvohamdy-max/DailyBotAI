@@ -1,0 +1,280 @@
+{
+  "generatedAt": "2026-08-18T15:25:02.737Z",
+  "history5m": 10000,
+  "history15m": 3634,
+  "history1h": 1034,
+  "notes": [
+    "All strategies evaluated candle-by-candle on closed 5m bars; entry at next bar open.",
+    "If SL and TP occur in same bar, SL is counted first (conservative).",
+    "Strategy D uses 5m execution because current history loader has no 1m support.",
+    "London/NY session times use UTC approximations suitable for current DST period; validate across DST if extending much further back."
+  ],
+  "results": [
+    {
+      "name": "A Scalper V3",
+      "trades": 12,
+      "wins": 5,
+      "losses": 7,
+      "winRate": 41.66666666666667,
+      "netR": 2,
+      "profitFactor": 1.2857142857142858,
+      "expectancy": 0.16666666666666666,
+      "maxDrawdownR": 4,
+      "worstLossStreak": 4,
+      "bySide": {
+        "BUY": {
+          "n": 4,
+          "r": -1.2
+        },
+        "SELL": {
+          "n": 8,
+          "r": 3.2
+        }
+      },
+      "bySession": {
+        "LONDON": {
+          "n": 2,
+          "r": 3.6
+        },
+        "NY": {
+          "n": 2,
+          "r": 0.8
+        },
+        "OTHER": {
+          "n": 8,
+          "r": -2.4000000000000004
+        }
+      },
+      "from": 1781733600000,
+      "to": 1786932000000
+    },
+    {
+      "name": "D EMA50/200 + MACD + RSI (5m)",
+      "trades": 195,
+      "wins": 80,
+      "losses": 115,
+      "winRate": 41.02564102564102,
+      "netR": 5,
+      "profitFactor": 1.0434782608695652,
+      "expectancy": 0.02564102564102564,
+      "maxDrawdownR": 10,
+      "worstLossStreak": 7,
+      "bySide": {
+        "BUY": {
+          "n": 106,
+          "r": 1.5
+        },
+        "SELL": {
+          "n": 89,
+          "r": 3.5
+        }
+      },
+      "bySession": {
+        "LONDON": {
+          "n": 29,
+          "r": 1
+        },
+        "NY": {
+          "n": 37,
+          "r": -4.5
+        },
+        "OTHER": {
+          "n": 129,
+          "r": 8.5
+        }
+      },
+      "from": 1781733600000,
+      "to": 1786932000000
+    },
+    {
+      "name": "G NY ORB Conservative",
+      "trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "winRate": 0,
+      "netR": 0,
+      "profitFactor": 0,
+      "expectancy": 0,
+      "maxDrawdownR": 0,
+      "worstLossStreak": 0,
+      "bySide": {
+        "BUY": {
+          "n": 0,
+          "r": 0
+        },
+        "SELL": {
+          "n": 0,
+          "r": 0
+        }
+      },
+      "bySession": {
+        "LONDON": {
+          "n": 0,
+          "r": 0
+        },
+        "NY": {
+          "n": 0,
+          "r": 0
+        },
+        "OTHER": {
+          "n": 0,
+          "r": 0
+        }
+      },
+      "from": 1781733600000,
+      "to": 1786932000000
+    },
+    {
+      "name": "E Regime Pullback",
+      "trades": 53,
+      "wins": 19,
+      "losses": 34,
+      "winRate": 35.84905660377358,
+      "netR": 4,
+      "profitFactor": 1.1176470588235294,
+      "expectancy": 0.07547169811320754,
+      "maxDrawdownR": 14,
+      "worstLossStreak": 10,
+      "bySide": {
+        "BUY": {
+          "n": 20,
+          "r": -5
+        },
+        "SELL": {
+          "n": 33,
+          "r": 9
+        }
+      },
+      "bySession": {
+        "LONDON": {
+          "n": 4,
+          "r": 2
+        },
+        "NY": {
+          "n": 11,
+          "r": 4
+        },
+        "OTHER": {
+          "n": 38,
+          "r": -2
+        }
+      },
+      "from": 1781733600000,
+      "to": 1786932000000
+    },
+    {
+      "name": "C NY Opening Range Breakout",
+      "trades": 11,
+      "wins": 3,
+      "losses": 8,
+      "winRate": 27.27272727272727,
+      "netR": -2,
+      "profitFactor": 0.75,
+      "expectancy": -0.18181818181818182,
+      "maxDrawdownR": 7,
+      "worstLossStreak": 7,
+      "bySide": {
+        "BUY": {
+          "n": 6,
+          "r": 3
+        },
+        "SELL": {
+          "n": 5,
+          "r": -5
+        }
+      },
+      "bySession": {
+        "LONDON": {
+          "n": 0,
+          "r": 0
+        },
+        "NY": {
+          "n": 11,
+          "r": -2
+        },
+        "OTHER": {
+          "n": 0,
+          "r": 0
+        }
+      },
+      "from": 1781733600000,
+      "to": 1786932000000
+    },
+    {
+      "name": "B Liquidity Sweep + VWAP",
+      "trades": 9,
+      "wins": 2,
+      "losses": 7,
+      "winRate": 22.22222222222222,
+      "netR": -3,
+      "profitFactor": 0.5714285714285714,
+      "expectancy": -0.3333333333333333,
+      "maxDrawdownR": 5,
+      "worstLossStreak": 5,
+      "bySide": {
+        "BUY": {
+          "n": 5,
+          "r": -2
+        },
+        "SELL": {
+          "n": 4,
+          "r": -1
+        }
+      },
+      "bySession": {
+        "LONDON": {
+          "n": 2,
+          "r": -2
+        },
+        "NY": {
+          "n": 0,
+          "r": 0
+        },
+        "OTHER": {
+          "n": 7,
+          "r": -1
+        }
+      },
+      "from": 1781733600000,
+      "to": 1786932000000
+    },
+    {
+      "name": "F Liquidity Sweep + London/NY",
+      "trades": 2,
+      "wins": 0,
+      "losses": 2,
+      "winRate": 0,
+      "netR": -2,
+      "profitFactor": 0,
+      "expectancy": -1,
+      "maxDrawdownR": 2,
+      "worstLossStreak": 2,
+      "bySide": {
+        "BUY": {
+          "n": 0,
+          "r": 0
+        },
+        "SELL": {
+          "n": 2,
+          "r": -2
+        }
+      },
+      "bySession": {
+        "LONDON": {
+          "n": 2,
+          "r": -2
+        },
+        "NY": {
+          "n": 0,
+          "r": 0
+        },
+        "OTHER": {
+          "n": 0,
+          "r": 0
+        }
+      },
+      "from": 1781733600000,
+      "to": 1786932000000
+    }
+  ]
+}

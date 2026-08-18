@@ -1,0 +1,8 @@
+rank,strategy,label,qualified,tp,trades,wr,net_r,pf,exp,dd,mfe,mae
+1,EMA921,"⚡ EMA 9/21 Session Momentum",false,2,90,38.89,8.62,1.147,0.096,9.76,1.460,1.002
+2,ASIA_SWEEP_NY,"🌏 Asia Sweep → NY",false,2,32,34.38,-0.18,0.992,-0.006,5.19,1.212,0.959
+3,TWO_B,"🎯 2B Liquidity Reversal",false,2,325,34.15,-32.27,0.866,-0.099,41.77,1.284,1.244
+4,SESSION_SWEEP_CHOCH,"💧 Session Sweep + CHoCH/FVG",false,1,12,33.33,-4.39,0.470,-0.366,5.37,0.707,0.975
+5,NEW_YORK,"🗽 New York",false,1.5,7,57.14,2.68,1.842,0.383,1.12,1.420,0.739
+6,LONDON_RETEST,"🇬🇧 London Breakout Retest",false,1.5,6,33.33,-1.36,0.683,-0.227,3.13,1.295,0.741
+7,CONSOLIDATION_SWEEP,"🪤 Consolidation Sweep Reversal",false,1.5,6,50.00,0.92,1.273,0.154,3.38,1.429,0.879

@@ -327,8 +327,12 @@ if (
           'UNKNOWN'
         );
 
+      const scalpStrategyId = String(result.scalpMeta?.strategyId || 'SCALP').toUpperCase();
+
+      const signalKey = `${pair}:${scalpStrategyId}`;
+
       const previousSignal =
-        lastSignals[pair];
+        lastSignals[signalKey];
 
       if (previousSignal) {
         const sameDirection =
@@ -382,7 +386,7 @@ if (
         }
       }
 
-      lastSignals[pair] = {
+      lastSignals[signalKey] = {
         direction: currentDirection,
         mode: currentMode,
         entry: currentEntry,
@@ -392,18 +396,18 @@ if (
 
       const existingScalpTrade = getOpenTrades().find((trade) => {
         const source = String(trade.telegram_id || '').toUpperCase();
-        return source === 'VIP_SCALP' || source === 'VIP' || source === 'VIP_FREE';
+        return source === `VIP_SCALP_${scalpStrategyId}`;
       });
 
       if (existingScalpTrade) {
         console.log(
-          `🔒 GOLD SCALP V3 blocked: Trade #${existingScalpTrade.id} still open`
+          `🔒 ${result.scalpMeta?.strategyLabel || 'GOLD SCALP'} blocked: Trade #${existingScalpTrade.id} still open`
         );
         continue;
       }
 
       const tradeInsert = addTrade({
-        telegram_id: "VIP_SCALP",
+        telegram_id: `VIP_SCALP_${scalpStrategyId}`,
         pair: pair,
         action: result.signal.action,
         entry: levels.entry,
@@ -501,7 +505,7 @@ if (result.signal.action === "BUY") {
 
 }
 const message = `
-⚡ إشارة GOLD SCALP V3
+⚡ إشارة سكالب — ${result.scalpMeta?.strategyLabel || 'Gold Scalp'}
 
 🥇 الزوج: ${pair}
 
@@ -538,7 +542,7 @@ ${pair === 'XAUUSD' && result.scalpMeta?.ready
         gradeMap[result.scalpMeta.grade] ||
         '✅ قوية';
 
-      return `⚡ نوع الإشارة: GOLD SCALP V3
+      return `⚡ نوع الإشارة: ${result.scalpMeta?.strategyLabel || 'Gold Scalp'}
 🏅 جودة الفرصة: ${quality}
 ⭐ Scalp Score: ${result.scalpMeta.score}/100
 ⏱️ الفريم التنفيذي: 5M`;

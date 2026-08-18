@@ -407,7 +407,9 @@ ${trade.stop_loss}
                     ? '🧭 GOLD REGIME'
                     : tradeSource === 'VIP_POWER'
                         ? '🏆 GOLD POWER'
-                        : '⚡ GOLD SCALP V3';
+                        : tradeSource === 'VIP_SCALP_NEW_YORK'
+                            ? '🗽 NEW YORK SCALP'
+                            : '⚡ GOLD SCALP';
 
                 message = `${strategyLabel}
 ━━━━━━━━━━━━━━━━━━
