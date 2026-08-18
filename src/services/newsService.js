@@ -1,7 +1,6 @@
-const { allUsers } = require('../database/users');
 const db = require('../database/db');
 const config = require('../config');
-const { translateNews } = require('./newsTranslator');
+const { translateNews, translateToArabic } = require('./newsTranslator');
 const { analyzeNews } = require('../ai/newsAI');
 const {
   getMultiSourceCalendar,
@@ -11,31 +10,23 @@ const {
 } = require('./newsCalendarGate');
 const { getInvestingFallback } = require('./investingFallback');
 
-function recipients() {
-  const out = new Set();
-
-  for (const user of allUsers()) {
-    out.add(String(user.telegram_id));
-  }
-
-  for (const adminId of config.adminIds || []) {
-    out.add(String(adminId));
-  }
-
-  if (config.mainGroupId) {
-    out.add(String(config.mainGroupId));
-  }
-
-  return [...out];
+function newsGroupId() {
+  const id = config.mainGroupId;
+  return id != null && String(id).trim() ? String(id).trim() : null;
 }
 
 async function broadcast(bot, message) {
-  for (const chatId of recipients()) {
-    try {
-      await bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });
-    } catch (error) {
-      console.log(`News send failed ${chatId}:`, error.message);
-    }
+  const chatId = newsGroupId();
+
+  if (!chatId) {
+    console.log('⚠️ News not sent: MAIN_GROUP_ID is not configured');
+    return;
+  }
+
+  try {
+    await bot.telegram.sendMessage(chatId, message, { parse_mode: 'HTML' });
+  } catch (error) {
+    console.log(`News group send failed ${chatId}:`, error.message);
   }
 }
 
@@ -215,6 +206,17 @@ function translateNewsArabic(title) {
   return 'خبر اقتصادي مهم';
 }
 
+
+
+async function translatedEconomicTitle(title) {
+  const local = translateNewsArabic(title);
+
+  // Known calendar events already have curated Arabic wording.
+  if (local && local !== 'خبر اقتصادي مهم') return local;
+
+  const translated = await translateToArabic(title);
+  return translated || 'خبر اقتصادي مهم';
+}
 
 
 
@@ -461,7 +463,7 @@ async function checkUpcomingNews(bot) {
 ${urgent ? '🔴 <b>وضع خطر الأخبار</b>' : '🚨 <b>تنبيه خبر اقتصادي قوي</b>'}
 
 💱 العملة: <b>${currencyArabic(event.currency)}</b>
-📰 الخبر: <b>${translateNewsArabic(event.title)}</b>
+📰 الخبر: <b>${await translatedEconomicTitle(event.title)}</b>
 ⏰ الموعد: ${formatLocalTime(event)}
 ⏳ باقي حوالي: <b>${label}</b>
 
@@ -476,7 +478,8 @@ ${urgent
   ? '🛑 يفضل عدم فتح صفقات جديدة على الأصول المتأثرة قبل صدور الخبر مباشرة.'
   : '⚠️ استعد لاحتمال ارتفاع التذبذب قبل وبعد الخبر.'}
 
-🤖 Forex AI Bot
+#forexNews
+@Forexaitrade_bot
 `;
 
     await broadcast(bot, message);
@@ -662,7 +665,7 @@ if (!hasValue(event.actual)) {
 ✅ <b>صدر الخبر الاقتصادي</b>
 
 💱 العملة: <b>${currencyArabic(event.currency)}</b>
-📰 الخبر: <b>${translateNewsArabic(event.title)}</b>
+📰 الخبر: <b>${await translatedEconomicTitle(event.title)}</b>
 
 📊 الفعلي: ${event.actual ?? '-'}
 📈 المتوقع: ${event.forecast ?? '-'}
@@ -676,7 +679,8 @@ ${sourceLine(event)}
 ${ai ? `🤖 تحليل AI:\n${ai}\n` : ''}
 ⚠️ يفضل انتظار هدوء الحركة وإعادة تقييم السوق بعد الخبر.
 
-🤖 Forex AI Bot
+#forexNews
+@Forexaitrade_bot
 `;
 
     await broadcast(bot, message);

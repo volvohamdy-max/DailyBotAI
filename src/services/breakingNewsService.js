@@ -1,9 +1,9 @@
 const axios = require('axios');
 const crypto = require('crypto');
-const { allUsers } = require('../database/users');
 const db = require('../database/db');
 const config = require('../config');
 const { getBoolSetting } = require('../database/adminControl');
+const { translateToArabic } = require('./newsTranslator');
 
 const DEFAULT_CHANNELS = [
   'https://t.me/s/ForexBreakingNews',
@@ -18,7 +18,7 @@ const HIGH_IMPACT_KEYWORDS = [
   'adp','employment','nonfarm','nfp','cpi','inflation','ppi','pce','gdp',
   'fomc','interest rate','rate decision','powell','jobless claims',
   'unemployment','retail sales','durable goods','ism','pmi',
-  'consumer confidence','consumer sentiment','jolts','trade balance',
+  'consumer confidence','consumer sentiment','jolts','trade balance','pending home sales',
   'import price','import prices','import price index','export price','export prices','export price index',
   'housing starts','building permits','industrial production','capacity utilization',
   'empire state','philadelphia fed','philly fed','business inventories','factory orders',
@@ -26,8 +26,71 @@ const HIGH_IMPACT_KEYWORDS = [
   'الناتج المحلي','مبيعات التجزئة','طلبات إعانة البطالة','مديري المشتريات',
   'أسعار الواردات','مؤشر أسعار الواردات','أسعار الصادرات','مؤشر أسعار الصادرات',
   'بدء بناء المنازل','تصاريح البناء','الإنتاج الصناعي','استغلال الطاقة الإنتاجية',
-  'ثقة المستهلك','معنويات المستهلك'
+  'ثقة المستهلك','معنويات المستهلك','مبيعات المنازل المعلقة','مبيعات المنازل قيد الانتظار'
 ];
+
+const MARKET_MOVING_STATEMENT_KEYWORDS = [
+  'federal reserve','fed chair','fed governor','fomc','ecb','european central bank',
+  'bank of england','boe','bank of japan','boj','pboc','people\'s bank of china',
+  'swiss national bank','snb','bank of canada','boc','reserve bank of australia','rba',
+  'reserve bank of new zealand','rbnz','central bank',
+  'treasury','finance minister','finance ministry','white house','president',
+  'tariff','tariffs','trade deal','trade war','sanctions','debt ceiling','budget',
+  'fiscal','tax','taxes','stimulus','subsidy','government spending',
+  'interest rate','rates','inflation','price pressures','employment','jobs','unemployment',
+  'growth','gdp','recession','soft landing','dollar','currency','yield','bond market',
+  'oil','crude','opec','opec+','production cut','production increase',
+  'الاحتياطي الفيدرالي','البنك المركزي','الفائدة','أسعار الفائدة','التضخم',
+  'الوظائف','البطالة','النمو','الركود','الدولار','العملة','السندات','العوائد',
+  'الخزانة','وزارة المالية','الرئيس','البيت الأبيض','الرسوم الجمركية','التجارة',
+  'العقوبات','الميزانية','الضرائب','التحفيز','النفط','أوبك','خفض الإنتاج','زيادة الإنتاج'
+];
+
+const STRONG_STATEMENT_TRIGGERS = [
+  'says','said','warns','warned','expects','signals','signal','indicates','indicated',
+  'supports','opposes','calls for','rules out','open to','considering','plans to',
+  'announces','announced','orders','ordered','approves','approved','imposes','imposed',
+  'cuts','raises','hikes','holds','pause','pivot',
+  'يقول','قال','يحذر','حذر','يتوقع','أشار','يدعم','يرفض','يدعو','يستبعد','يدرس',
+  'يعلن','أعلن','يفرض','فرض','يخفض','يرفع','يثبت','تثبيت','خفض','رفع'
+];
+
+function isMarketMovingStatement(text) {
+  const raw = String(text || '');
+  const lower = raw.toLowerCase();
+  const hasSubject = MARKET_MOVING_STATEMENT_KEYWORDS.some(k => lower.includes(k));
+  const hasTrigger = STRONG_STATEMENT_TRIGGERS.some(k => lower.includes(k));
+  if (!hasSubject || !hasTrigger) return false;
+  const economicTerms = /interest rate|rates|inflation|employment|jobs|unemployment|growth|gdp|recession|dollar|currency|yield|bond|tariff|trade|sanction|budget|fiscal|tax|stimulus|oil|opec|فائدة|التضخم|الوظائف|البطالة|النمو|الركود|الدولار|العملة|العوائد|السندات|الرسوم|التجارة|العقوبات|الميزانية|الضرائب|التحفيز|النفط|أوبك/i;
+  const centralBank = /federal reserve|\bfed\b|fomc|ecb|bank of england|\bboe\b|bank of japan|\bboj\b|pboc|swiss national bank|\bsnb\b|bank of canada|\bboc\b|reserve bank of australia|\brba\b|reserve bank of new zealand|\brbnz\b|central bank|الاحتياطي الفيدرالي|البنك المركزي/i.test(raw);
+  return centralBank || economicTerms.test(raw);
+}
+
+function statementRegion(text) {
+  const t = String(text || '');
+  if (/federal reserve|\bfed\b|fomc|white house|u\.?s\.? treasury|united states|america|أمريكا|الولايات المتحدة|الخزانة الأمريكية|البيت الأبيض/i.test(t)) return 'USD';
+  if (/ecb|european central bank|eurozone|euro area|المركزي الأوروبي|منطقة اليورو/i.test(t)) return 'EUR';
+  if (/bank of england|\bboe\b|united kingdom|britain|بنك إنجلترا|بريطانيا/i.test(t)) return 'GBP';
+  if (/bank of japan|\bboj\b|japan|بنك اليابان|اليابان/i.test(t)) return 'JPY';
+  return null;
+}
+
+function statementTitle(text) {
+  const t = String(text || '');
+  if (/federal reserve|\bfed\b|fomc|الاحتياطي الفيدرالي/i.test(t)) return 'تصريحات مؤثرة من الاحتياطي الفيدرالي';
+  if (/ecb|european central bank|المركزي الأوروبي/i.test(t)) return 'تصريحات مؤثرة من البنك المركزي الأوروبي';
+  if (/bank of england|\bboe\b|بنك إنجلترا/i.test(t)) return 'تصريحات مؤثرة من بنك إنجلترا';
+  if (/bank of japan|\bboj\b|بنك اليابان/i.test(t)) return 'تصريحات مؤثرة من بنك اليابان';
+  if (/wti|west texas|brent|crude oil|oil price|oil prices|strait of hormuz|hormuz|opec|opec\+|خام غرب تكساس|برنت|النفط|مضيق هرمز|أوبك/i.test(t)) {
+    return 'تطور مهم في سوق النفط والطاقة';
+  }
+  if (/tariff|trade|sanction|رسوم|التجارة|العقوبات/i.test(t)) return 'تطور اقتصادي عالمي في التجارة والسياسات';
+  return 'تصريح اقتصادي عالمي مهم';
+}
+
+function compactStatement(text) {
+  return cleanMarketing(text).replace(/\n{3,}/g, '\n\n').slice(0, 900).trim();
+}
 
 function channels() {
   const configured = String(process.env.BREAKING_NEWS_CHANNELS || '')
@@ -65,9 +128,9 @@ function isImportantCurrency(currency) {
 
 function isRelevant(text) {
   const lower = String(text).toLowerCase();
-  const currencyRelevant = /(?:USD|EUR|GBP|JPY|XAU|أمريكا|الولايات المتحدة|🇺🇸|الدولار|اليورو|الإسترليني|الين|الذهب)/i.test(text);
+  const currencyRelevant = /(?:USD|EUR|GBP|JPY|CHF|CAD|AUD|CNY|XAU|أمريكا|الولايات المتحدة|أوروبا|بريطانيا|اليابان|الصين|كندا|أستراليا|سويسرا|🇺🇸|الدولار|اليورو|الإسترليني|الين|الذهب|النفط|أوبك)/i.test(text);
   const impactRelevant = HIGH_IMPACT_KEYWORDS.some(keyword => lower.includes(keyword));
-  return currencyRelevant && impactRelevant;
+  return (currencyRelevant && impactRelevant) || isMarketMovingStatement(text);
 }
 
 function cleanMarketing(text) {
@@ -77,8 +140,15 @@ function cleanMarketing(text) {
       !l.includes('t.me/') &&
       !l.includes('انضم للقناة') &&
       !l.includes('لمتابعة') &&
-      !l.includes('join');
-  }).join('\n').trim();
+      !l.includes('join') &&
+      !/read\s+more/i.test(line) &&
+      !/^https?:\/\//i.test(line.trim());
+  }).join('\n')
+    .replace(/https?:\/\/\S+/gi, '')
+    .replace(/read\s+more\s*👈?/gi, '')
+    .replace(/\s*\.\.\.\s*$/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function valueAfter(text, labels) {
@@ -138,6 +208,7 @@ function detectEvent(text) {
   if (/philadelphia fed|philly fed/i.test(t)) return 'Philadelphia Fed Manufacturing Index';
   if (/factory orders|طلبات المصانع/i.test(t)) return 'Factory Orders';
   if (/business inventories|مخزونات الأعمال/i.test(t)) return 'Business Inventories';
+  if (/pending home sales|مبيعات المنازل المعلقة|مبيعات المنازل قيد الانتظار/i.test(t)) return 'Pending Home Sales';
   if (/unemployment|البطالة/i.test(t)) return 'Unemployment Rate';
   return 'Economic Release';
 }
@@ -170,6 +241,7 @@ function eventArabic(event) {
     [/Philadelphia Fed Manufacturing Index/i, 'مؤشر فيلادلفيا الفيدرالي الصناعي'],
     [/Factory Orders/i, 'طلبات المصانع'],
     [/Business Inventories/i, 'مخزونات الأعمال'],
+    [/Pending Home Sales/i, 'مؤشر مبيعات المنازل المعلقة'],
     [/FOMC Interest Rate Decision/i, 'قرار الفائدة للاحتياطي الفيدرالي الأمريكي'],
     [/ECB Interest Rate Decision/i, 'قرار الفائدة للبنك المركزي الأوروبي'],
     [/BoE Interest Rate Decision/i, 'قرار الفائدة لبنك إنجلترا'],
@@ -245,6 +317,39 @@ function affectedPairs(currency) {
   return map[currency] || [];
 }
 
+function statementAssets(text, currency) {
+  const t = String(text || '');
+
+  // Energy-first mapping: do not label unrelated FX pairs as the primary assets.
+  if (/wti|west texas|brent|crude oil|oil price|oil prices|opec|opec\+|strait of hormuz|hormuz|خام غرب تكساس|برنت|النفط|أوبك|مضيق هرمز/i.test(t)) {
+    const primary = ['USOIL / WTI', 'UKOIL / Brent'];
+    const secondary = [];
+
+    if (/war|conflict|attack|geopolit|hormuz|sanction|حرب|صراع|هجوم|جيوسياس|هرمز|عقوبات/i.test(t)) {
+      secondary.push('XAUUSD — تأثير ثانوي محتمل مع تصاعد المخاطر');
+    }
+
+    if (/inflation|energy prices|yield|rates|التضخم|أسعار الطاقة|العوائد|الفائدة/i.test(t)) {
+      secondary.push('USD — تأثير ثانوي حسب التضخم والعوائد');
+    }
+
+    return { primary, secondary };
+  }
+
+  if (/gold|bullion|safe haven|الذهب|ملاذ آمن/i.test(t)) {
+    return { primary: ['XAUUSD'], secondary: [] };
+  }
+
+  if (/bitcoin|crypto|cryptocurrency|بتكوين|العملات الرقمية/i.test(t)) {
+    return { primary: ['BTCUSD'], secondary: [] };
+  }
+
+  return {
+    primary: affectedPairs(currency),
+    secondary: []
+  };
+}
+
 function extractNarrativeValues(text) {
   const out = { actual: null, forecast: null, previous: null };
   const t = String(text || '');
@@ -274,7 +379,7 @@ function extractNarrativeValues(text) {
 }
 
 function hasKnownMacroEvent(text) {
-  return /\bADP\b|\bNFP\b|nonfarm|consumer price|\bCPI\b|producer price|\bPPI\b|\bPCE\b|\bGDP\b|FOMC|interest rate|rate decision|jobless claims|unemployment|retail sales|durable goods|\bISM\b|\bPMI\b|JOLTS|employment|import prices?|import price index|export prices?|export price index|housing starts|building permits|industrial production|capacity utilization|consumer sentiment|consumer confidence|empire state|philadelphia fed|philly fed|factory orders|business inventories|التوظيف|الوظائف|البطالة|التضخم|الفائدة|الناتج المحلي|مبيعات التجزئة|إعانة البطالة|مديري المشتريات|أسعار الواردات|مؤشر أسعار الواردات|أسعار الصادرات|مؤشر أسعار الصادرات|بدء بناء المنازل|بدء بناء المساكن|تصاريح البناء|الإنتاج الصناعي|استغلال الطاقة الإنتاجية|استخدام الطاقة الإنتاجية|معنويات المستهلك|ثقة المستهلك|طلبات المصانع|مخزونات الأعمال/i.test(text);
+  return /\bADP\b|\bNFP\b|nonfarm|consumer price|\bCPI\b|producer price|\bPPI\b|\bPCE\b|\bGDP\b|FOMC|interest rate|rate decision|jobless claims|unemployment|retail sales|durable goods|\bISM\b|\bPMI\b|JOLTS|employment|import prices?|import price index|export prices?|export price index|housing starts|building permits|industrial production|capacity utilization|consumer sentiment|consumer confidence|empire state|philadelphia fed|philly fed|factory orders|business inventories|pending home sales|التوظيف|الوظائف|البطالة|التضخم|الفائدة|الناتج المحلي|مبيعات التجزئة|إعانة البطالة|مديري المشتريات|أسعار الواردات|مؤشر أسعار الواردات|أسعار الصادرات|مؤشر أسعار الصادرات|بدء بناء المنازل|بدء بناء المساكن|تصاريح البناء|الإنتاج الصناعي|استغلال الطاقة الإنتاجية|استخدام الطاقة الإنتاجية|معنويات المستهلك|ثقة المستهلك|طلبات المصانع|مخزونات الأعمال|مبيعات المنازل المعلقة|مبيعات المنازل قيد الانتظار/i.test(text);
 }
 
 function isReleasedDataPost(text, actual) {
@@ -346,17 +451,78 @@ function isCommentaryOnly(text) {
   return false;
 }
 
+function hasStructuredReleaseTriplet(text) {
+  const t = String(text || '');
+  const hasPrevious = /(?:^|\n)\s*(?:▪️|▫️|✅|🔵|🔴|🟥|🟢|[-•]*)?\s*(?:السابق|previous)\s*[:：]?\s*[^\n]+/im.test(t);
+  const hasForecast = /(?:^|\n)\s*(?:▪️|▫️|✅|🔵|🔴|🟥|🟢|[-•]*)?\s*(?:التقدير|المتوقع|forecast|consensus)\s*[:：]?\s*[^\n]+/im.test(t);
+  const hasActual = /(?:^|\n)\s*(?:▪️|▫️|✅|🔵|🔴|🟥|🟢|[-•]*)?\s*(?:الحالي|الفعلي|actual|current)\s*[:：]?\s*[^\n]+/im.test(t);
+  return hasPrevious && hasForecast && hasActual;
+}
+
+function isTrustedStructuredReleaseSource(sourceUrl) {
+  return /ForexBreakingNews/i.test(String(sourceUrl || ''));
+}
+
+function extractReleaseTitle(text) {
+  const lines = cleanMarketing(text)
+    .split('\n')
+    .map(x => x.trim())
+    .filter(Boolean);
+
+  const skip = /صدر الآن|released now|أمريكا|الولايات المتحدة|أوروبا|بريطانيا|اليابان|الصين|كندا|أستراليا|سويسرا|🇺🇸|🇪🇺|🇬🇧|🇯🇵|🇨🇦|🇦🇺|🇨🇭|السابق|previous|التقدير|المتوقع|forecast|consensus|الحالي|الفعلي|actual|current|النتيجة|result/i;
+
+  for (const line of lines) {
+    const cleaned = line
+      .replace(/^[^\p{L}\p{N}]+/u, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (!cleaned || skip.test(cleaned)) continue;
+    if (/^https?:\/\//i.test(cleaned)) continue;
+    if (cleaned.length < 4 || cleaned.length > 140) continue;
+    return cleaned;
+  }
+
+  return null;
+}
+
 function parseBreakingPost(post, sourceUrl = '') {
   const text = cleanMarketing(post.text);
+  const structuredRelease =
+    hasStructuredReleaseTriplet(text) &&
+    isTrustedStructuredReleaseSource(sourceUrl);
 
-  if (!isRelevant(text)) return null;
-  if (!hasKnownMacroEvent(text)) return null;
+  // Trusted Actual/Forecast/Previous releases must not be dropped just because
+  // the event name has not been added to our dictionary yet.
+  if (!isRelevant(text) && !structuredRelease) return null;
+
+  if (isMarketMovingStatement(text) && !hasKnownMacroEvent(text) && !structuredRelease) {
+    const currency = statementRegion(text);
+    return {
+      postId: post.postId,
+      sourceUrl,
+      type: 'STATEMENT',
+      currency,
+      event: statementTitle(text),
+      statement: compactStatement(text),
+      previous: null,
+      forecast: null,
+      actual: null,
+      impact: null,
+      assets: statementAssets(text, currency),
+      pairs: statementAssets(text, currency).primary
+    };
+  }
+
+  if (!hasKnownMacroEvent(text) && !structuredRelease) return null;
   if (isCommentaryOnly(text)) return null;
 
   const currency = detectCurrency(text);
   if (!currency || !isImportantCurrency(currency)) return null;
 
-  const event = detectEvent(text);
+  let event = detectEvent(text);
+  if (event === 'Economic Release' && structuredRelease) {
+    event = extractReleaseTitle(text) || event;
+  }
   let previous = null;
   let forecast = null;
   let actual = null;
@@ -414,10 +580,14 @@ function eventDedupeKey(item) {
   const actual = String(item.actual || 'NA')
     .toUpperCase()
     .replace(/\s+/g, '');
+  const statement = String(item.statement || '')
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .slice(0, 500);
 
   return `breaking_event_${crypto
     .createHash('sha1')
-    .update(`${day}|${currency}|${event}|${actual}`)
+    .update(`${day}|${currency}|${event}|${actual}|${statement}`)
     .digest('hex')
     .slice(0, 20)}`;
 }
@@ -442,22 +612,9 @@ function markSent(key) {
   ).run(key);
 }
 
-function recipients() {
-  const ids = new Set();
-
-  for (const user of allUsers()) {
-    ids.add(String(user.telegram_id));
-  }
-
-  for (const adminId of config.adminIds || []) {
-    ids.add(String(adminId));
-  }
-
-  if (config.mainGroupId) {
-    ids.add(String(config.mainGroupId));
-  }
-
-  return [...ids];
+function newsGroupId() {
+  const id = config.mainGroupId;
+  return id != null && String(id).trim() ? String(id).trim() : null;
 }
 
 function impactText(item) {
@@ -483,38 +640,87 @@ function impactText(item) {
   }
 }
 
-function message(item) {
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+async function message(item) {
+  if (item.type === 'STATEMENT') {
+    const arabicStatement = await translateToArabic(item.statement);
+
+    // Do not leak long untranslated English articles into the Arabic news group.
+    if (!arabicStatement) return null;
+
+    const eventTitle = eventArabic(item.event);
+    const showEventTitle = eventTitle && eventTitle !== 'تصريح اقتصادي عالمي مهم';
+    const assets = item.assets || { primary: item.pairs || [], secondary: [] };
+
+    const primaryAssets = assets.primary?.length
+      ? assets.primary.map(x => `• ${x}`).join('\n')
+      : '• أسواق عالمية';
+
+    const secondaryAssets = assets.secondary?.length
+      ? `\n\n🔗 <b>تأثير ثانوي محتمل</b>\n${assets.secondary.map(x => `• ${x}`).join('\n')}`
+      : '';
+
+    return `🚨 <b>تصريح اقتصادي عالمي مهم</b>
+${showEventTitle ? `\n📰 <b>${escapeHtml(eventTitle)}</b>\n` : ''}
+${escapeHtml(arabicStatement)}
+
+🎯 <b>الأصول الأكثر تأثرًا</b>
+${escapeHtml(primaryAssets)}${secondaryAssets ? `\n${escapeHtml(secondaryAssets)}` : ''}
+
+⚠️ التأثير الفعلي يعتمد على سياق السوق وردة فعل الأسعار.
+
+#forexNews
+@Forexaitrade_bot`;
+  }
+
+  let releaseTitle = eventArabic(item.event);
+  if (releaseTitle === item.event && /[A-Za-z]/.test(String(releaseTitle || ''))) {
+    releaseTitle = await translateToArabic(releaseTitle) || releaseTitle;
+  }
+
   return `🟥 <b>صدر الآن — خبر اقتصادي مهم</b>
 
 💱 العملة:
-<b>${currencyArabic(item.currency)}</b>
+<b>${escapeHtml(currencyArabic(item.currency))}</b>
 
 📰 الخبر:
-<b>${eventArabic(item.event)}</b>
+<b>${escapeHtml(releaseTitle)}</b>
 
 📊 <b>بيانات الخبر</b>
 
-▪️ السابق: ${item.previous || '-'}
-▪️ المتوقع: ${item.forecast || '-'}
-✅ الفعلي: ${item.actual || '-'}
+▪️ السابق: ${escapeHtml(item.previous || '-')}
+▪️ المتوقع: ${escapeHtml(item.forecast || '-')}
+✅ الفعلي: ${escapeHtml(item.actual || '-')}
 
-${impactText(item)}
+${escapeHtml(impactText(item))}
 
 🎯 <b>الأصول المتأثرة</b>
-${item.pairs.length ? item.pairs.join(', ') : '-'}
+${escapeHtml(item.pairs.length ? item.pairs.join(', ') : '-')}
 
 ⚠️ قراءة الخبر لا تضمن اتجاه السعر، وقد تختلف استجابة السوق بسبب التسعير المسبق أو تفاصيل الإصدار.
 
-🤖 Forex AI Bot`;
+#forexNews
+@Forexaitrade_bot`;
 }
 
 async function broadcast(bot, text) {
-  for (const chatId of recipients()) {
-    try {
-      await bot.telegram.sendMessage(chatId, text, { parse_mode: 'HTML' });
-    } catch (error) {
-      console.log(`Breaking news send failed ${chatId}:`, error.message);
-    }
+  const chatId = newsGroupId();
+
+  if (!chatId) {
+    console.log('⚠️ Breaking news not sent: MAIN_GROUP_ID is not configured');
+    return;
+  }
+
+  try {
+    await bot.telegram.sendMessage(chatId, text, { parse_mode: 'HTML' });
+  } catch (error) {
+    console.log(`Breaking news group send failed ${chatId}:`, error.message);
   }
 }
 
@@ -548,10 +754,15 @@ async function checkBreakingNews(bot) {
 
         if (alreadySent(key) || alreadySent(eventKey)) continue;
 
+        const text = await message(item);
+        if (!text) {
+          console.log(`⏳ Breaking news deferred until Arabic translation succeeds: ${item.event}`);
+          continue;
+        }
+
+        await broadcast(bot, text);
         markSent(key);
         markSent(eventKey);
-
-        await broadcast(bot, message(item));
         console.log(`🟥 Breaking economic news sent: ${item.event}`);
       }
     } catch (error) {
