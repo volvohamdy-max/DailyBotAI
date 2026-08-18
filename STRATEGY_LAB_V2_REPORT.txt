@@ -1,0 +1,19 @@
+STRATEGY LAB V2 — XAUUSD ONLY
+
+- Dynamic condition builder for gold only.
+- Timeframes: 5m, 15m, 1h.
+- Direction: BUY or SELL.
+- Conditions are evaluated on candle close and combined with AND.
+- Entry is next candle open.
+- Indicators/conditions:
+  * Close above/below EMA 9/20/50/100/200
+  * EMA crossover up/down
+  * RSI(14) above/below custom value
+  * ADX(14) above custom value
+  * Close above/below VWAP
+  * MACD signal crossover up/down
+  * Bullish/bearish candle
+  * Close above previous high / below previous low
+- SL and TP configurable as ATR multiples.
+- Backtest report: trades, wins, losses, win rate, Net R, max drawdown, streaks.
+- Live bot trading strategy is not modified.

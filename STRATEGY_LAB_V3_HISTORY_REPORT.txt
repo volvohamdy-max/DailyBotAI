@@ -1,0 +1,13 @@
+Strategy Lab V3 - Historical Backtest
+Date: 2026-08-18
+
+Changes:
+- XAUUSD Strategy Lab only.
+- Added selectable history size: 500 / 1000 / 2000 / 5000 / 10000 candles.
+- Default history size: 2000 candles.
+- Added independent Sifting historical loader for Strategy Lab.
+- Historical data is fetched in chunks up to 2000 bars and merged/deduplicated.
+- Added 10-minute in-memory cache per timeframe/history-size.
+- Does not use the live scanner candle request path or provider circuit breaker.
+- No changes to live trading strategy, scoring, BUY/SELL logic, SL/TP, or signal generation.
+- Syntax checks passed for strategyHistory.js, strategyLab.js, myStrategy.js, and src/app.js.

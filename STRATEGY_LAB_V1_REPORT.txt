@@ -1,0 +1,27 @@
+FOREX AI — GOLD STRATEGY LAB V1
+Date: 2026-08-18
+
+Added:
+- Main Market menu button: 🧪 استراتيجيتي / 🧪 My Strategy
+- /strategy command
+- Gold-only XAUUSD strategy sandbox
+- Timeframes: 5m, 15m, 1h
+- Direction: BUY, SELL, BOTH
+- Indicators: RSI, EMA fast/slow, ADX, ATR
+- Presets: Aggressive, Balanced, Conservative
+- Custom numeric rules input
+- Historical backtest with next-candle entry and non-overlapping trades
+- Conservative same-candle SL/TP handling (SL first)
+- Results: trades, wins, losses, win rate, Net R, Max Drawdown R, streaks, last 5 trades
+
+Safety / isolation:
+- No changes to live signal entry rules, scoring, BUY/SELL logic, SL/TP logic, Gold Scalper logic, or trade monitor logic.
+- Strategy Lab is an independent sandbox using marketService.getCandles only.
+
+Files added:
+- src/services/strategyLab.js
+- src/handlers/myStrategy.js
+
+Files integrated:
+- src/keyboards/main.js
+- src/app.js
