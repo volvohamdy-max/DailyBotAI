@@ -41,15 +41,12 @@ if (missingPackages.length > 0) {
   process.exit(1);
 }
 
-// Stable candle routing is installed before src/app.js loads any strategy:
-//   FX:     Dukascopy -> TwelveData
-//   XAUUSD: Dukascopy -> SiftingIO -> TwelveData -> Massive (optional)
+// Preferred routing is installed before src/app.js loads any strategy:
+//   XAU candles: SiftingIO -> TwelveData -> Dukascopy -> Massive
+//   XAU live price: GoldAPI -> SiftingIO -> Massive
+//   FX candles: TwelveData -> Dukascopy emergency
 // BTCUSD stays on the native Binance path.
-// Yahoo and AlphaVantage are intentionally not installed as intraday candle
-// fallbacks because their current access paths are rate-limited/premium.
-require('./src/services/installGoldRequestQueue');
-require('./src/services/installMassiveMarketFallback');
-require('./src/services/installDukascopyFallback');
+require('./src/services/installPreferredMarketRouting');
 
 console.log('Loading Telegram Forex AI bot source...');
 require(appPath);
