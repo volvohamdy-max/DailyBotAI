@@ -1,50 +1,39 @@
 const marketService = require('./marketService');
-const { getDukascopyCandles } = require('./dukascopyMarketData');
-
-const dukascopyConfigured = Boolean(process.env.DUKASCOPY_API_KEY);
+const {
+  getDukascopyCandles,
+  isDukascopyConfigured
+} = require('./dukascopyMarketData');
 
 if (!marketService.__dukascopyFallbackInstalled) {
-  if (!dukascopyConfigured) {
-    Object.defineProperty(marketService, '__dukascopyFallbackInstalled', {
-      value: true,
-      enumerable: false,
-      configurable: false
-    });
+  const originalGetCandles = marketService.getCandles.bind(marketService);
 
-    console.log('🟢 Dukascopy candle fallback DISABLED (DUKASCOPY_API_KEY missing)');
-  } else {
-    const originalGetCandles = marketService.getCandles.bind(marketService);
+  marketService.getCandles = async function getCandlesWithDukascopyPrimary(pair, interval = '15min') {
+    const symbol = String(pair || '').trim().toUpperCase();
 
-    marketService.getCandles = async function getCandlesWithDukascopy(pair, interval = '15min') {
+    if (symbol !== 'BTCUSD' && isDukascopyConfigured()) {
       try {
-        return await originalGetCandles(pair, interval);
-      } catch (primaryError) {
-        const symbol = String(pair || '').trim().toUpperCase();
-        if (symbol === 'BTCUSD') throw primaryError;
-
-        try {
-          console.log(`🟢 DUKASCOPY FALLBACK: ${symbol} ${interval} | primary=${primaryError.message}`);
-          const candles = await getDukascopyCandles(symbol, interval);
-          console.log(`✅ DUKASCOPY CANDLES ${symbol} ${interval}: ${candles.length}`);
-          return candles;
-        } catch (dukascopyError) {
-          console.log(
-            `⚠️ Dukascopy candles failed ${symbol} ${interval}:`,
-            dukascopyError.response?.status || dukascopyError.message
-          );
-          throw primaryError;
-        }
+        console.log(`🟢 DUKASCOPY PRIMARY: ${symbol} ${interval}`);
+        return await getDukascopyCandles(symbol, interval);
+      } catch (dukascopyError) {
+        console.log(
+          `⚠️ Dukascopy primary unavailable ${symbol} ${interval}:`,
+          dukascopyError.message
+        );
       }
-    };
+    }
 
-    Object.defineProperty(marketService, '__dukascopyFallbackInstalled', {
-      value: true,
-      enumerable: false,
-      configurable: false
-    });
+    return originalGetCandles(symbol, interval);
+  };
 
-    console.log('🟢 Dukascopy candle fallback READY');
-  }
+  Object.defineProperty(marketService, '__dukascopyFallbackInstalled', {
+    value: true,
+    enumerable: false,
+    configurable: false
+  });
+
+  console.log(
+    `🟢 Dukascopy direct datafeed ${isDukascopyConfigured() ? 'PRIMARY READY' : 'DISABLED (dukascopy-node missing)'}`
+  );
 }
 
 module.exports = marketService;
