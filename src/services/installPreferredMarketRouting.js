@@ -16,6 +16,12 @@ const inFlight = new Map();
 let twelveGoldCooldownUntil = 0;
 let lastTwelveGoldAt = 0;
 
+// Sifting was stable when called normally, but the gold cycle asks for
+// 5m/15m/1h together. Serialize those calls so we never burst the provider.
+let siftingTail = Promise.resolve();
+let lastSiftingAt = 0;
+const SIFTING_GAP_MS = Number(process.env.SIFTING_GOLD_GAP_MS) || 1800;
+
 const TIMEOUT = Number(process.env.MARKET_PROVIDER_TIMEOUT_MS) || 10000;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -76,20 +82,38 @@ function validate(symbol, tf, candles, requireVolume = false) {
   return candles.slice(-100);
 }
 
+function enqueueSifting(label, task) {
+  const run = async () => {
+    const gap = SIFTING_GAP_MS - (Date.now() - lastSiftingAt);
+    if (gap > 0) await sleep(gap);
+    try {
+      return await task();
+    } finally {
+      lastSiftingAt = Date.now();
+    }
+  };
+  const p = siftingTail.then(run, run);
+  siftingTail = p.catch(() => {});
+  return p;
+}
+
 async function siftingGoldCandles(tf) {
   const apiKey = process.env.SIFTING_API_KEY || '';
   if (!apiKey) throw new Error('SIFTING_API_KEY not configured');
   const interval = tfSifting(tf);
   if (!interval) throw new Error(`Unsupported Sifting interval ${tf}`);
-  const start = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
-  const end = new Date().toISOString();
-  const { data } = await axios.get('https://api.sifting.io/v1/hist/commodities/XAUUSD/bars', {
-    headers: { 'X-API-Key': apiKey, 'Accept-Encoding': 'gzip' },
-    params: { start, end, interval, limit: 2000 },
-    timeout: TIMEOUT
+
+  return enqueueSifting(`XAUUSD:${tf}`, async () => {
+    const start = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+    const end = new Date().toISOString();
+    const { data } = await axios.get('https://api.sifting.io/v1/hist/commodities/XAUUSD/bars', {
+      headers: { 'X-API-Key': apiKey, 'Accept-Encoding': 'gzip' },
+      params: { start, end, interval, limit: 2000 },
+      timeout: TIMEOUT
+    });
+    const rows = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+    return validate('XAUUSD', tf, normalize(rows), tf === '5min');
   });
-  const rows = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
-  return validate('XAUUSD', tf, normalize(rows), tf === '5min');
 }
 
 async function twelveGoldCandles(tf) {
@@ -249,6 +273,7 @@ if (!marketService.__preferredRoutingInstalled) {
 
   console.log('🧭 Preferred market routing READY');
   console.log('🥇 XAU candles: SiftingIO → PAXG/XAUT Proxy → TwelveData → Dukascopy → Massive');
+  console.log(`🧵 Sifting XAU request queue: ${SIFTING_GAP_MS}ms gap`);
   console.log('🥇 XAU price: GoldAPI → SiftingIO → Massive');
   console.log('🥇 FX candles: TwelveData → Dukascopy emergency');
 }
