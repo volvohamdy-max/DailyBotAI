@@ -1,5 +1,6 @@
 const axios = require('axios');
 const newsCalendarGate = require('./newsCalendarGate');
+const newsProviders = require('./newsProviders');
 
 const IMPORTANT = new Set(['USD','EUR','GBP','JPY','CHF']);
 const FF_URL = process.env.FOREX_FACTORY_CALENDAR_URL || 'https://nfs.faireconomy.media/ff_calendar_thisweek.json';
@@ -148,7 +149,12 @@ if (!newsCalendarGate.__enhancedCalendarInstalled) {
 
   newsCalendarGate.getMultiSourceCalendar = async function enhancedCalendar(forceRefresh = false) {
     if (!forceRefresh && cache && Date.now() - cacheAt < CACHE_MS) return cache;
-    const base = await nativeGet(forceRefresh);
+
+    // Bypass newsCalendarGate's short cache on forced post-release refresh.
+    const base = forceRefresh
+      ? await newsProviders.getMultiSourceCalendar(true)
+      : await nativeGet();
+
     const ff = await fetchForexFactoryWeek();
     const minutes = fomcMinutesSchedule();
     cache = {
@@ -161,7 +167,7 @@ if (!newsCalendarGate.__enhancedCalendarInstalled) {
   };
 
   Object.defineProperty(newsCalendarGate, '__enhancedCalendarInstalled', { value: true });
-  console.log('📰 Enhanced news calendar READY | official + ForexFactory public + FOMC minutes');
+  console.log('📰 Enhanced news calendar READY | official + ForexFactory public + FOMC minutes + true force-refresh');
 }
 
 module.exports = newsCalendarGate;
