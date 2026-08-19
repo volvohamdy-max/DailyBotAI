@@ -15,6 +15,7 @@ const registerReport14 = require('./commands/report14');
 const registerAlerts = require('./commands/alerts');
 const registerSettings = require('./commands/settings');
 const registerAdminCommands = require('./admin/adminCommands');
+const registerTradeAdminControls = require('./admin/tradeAdminControls');
 const { registerAdminV21 } = require('./admin/adminControlCenterV21');
 const { getBoolSetting: getAdminBoolSetting } = require('./database/adminControl');
 const startScheduler = require('./services/scheduler');
@@ -92,6 +93,7 @@ async function main() {
   registerUserCommands(bot);
   registerPerformance(bot);
   registerAdminCommands(bot);
+  registerTradeAdminControls(bot);
   registerAdminV21(bot);
 
   console.log('Commands are registered.');
