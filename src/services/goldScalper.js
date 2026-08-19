@@ -1,3 +1,5 @@
+require('./installMassiveMarketFallback');
+
 const newYorkStrategy = require('./scalpStrategies/newYorkStrategy');
 const aggressiveBreakoutA = require('./scalpStrategies/aggressiveBreakoutA');
 
