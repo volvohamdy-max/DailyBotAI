@@ -1,8 +1,6 @@
 const { isPairMarketOpen } = require('../utils/marketHours');
 const { analyzePair } = require('./analysisGate');
 const { evaluateScalpEntry } = require('./scalpingEntryEngine');
-const { getDukascopyCandles } = require('./dukascopyMarketData');
-const { setCache } = require('./candleCache');
 
 const SCANNER_PAIRS = [
     'XAUUSD',
@@ -94,20 +92,6 @@ function getAIConfidence(signal) {
     return Math.max(0, Math.min(100, Math.round(confidence)));
 }
 
-async function prewarmForexScanner(pair) {
-    if (pair === 'XAUUSD' || pair === 'BTCUSD') return;
-    try {
-        const candles = await getDukascopyCandles(pair, '15min');
-        if (Array.isArray(candles) && candles.length >= 20) {
-            setCache(`${pair}:15min`, candles);
-            console.log(`🟢 Scanner prewarm ${pair}:15min via Dukascopy (${candles.length})`);
-        }
-    } catch (error) {
-        // Silent-ish fallback: analyzePair will use the regular provider plan.
-        console.log(`🟡 Scanner Dukascopy prewarm unavailable ${pair}: ${error.response?.status || error.message}`);
-    }
-}
-
 async function scanMarkets() {
     const results = [];
 
@@ -119,7 +103,6 @@ async function scanMarkets() {
 
         try {
             console.log(`🔎 Smart Scanner analyzing ${pair}...`);
-            await prewarmForexScanner(pair);
             const result = await analyzePair(pair);
             if (!result || !result.indicators) {
                 console.log(`⚠️ No analysis for ${pair}`);
