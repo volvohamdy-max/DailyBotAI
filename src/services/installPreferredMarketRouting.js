@@ -3,6 +3,7 @@ const config = require('../config');
 const marketService = require('./marketService');
 const { getTwelveForexCandles } = require('./twelveForexFallback');
 const { getDukascopyCandles, isDukascopyConfigured } = require('./dukascopyMarketData');
+const { getGoldProxyCandles } = require('./goldProxyFallback');
 const {
   getMassiveGoldCandles,
   getMassiveGoldPrice,
@@ -162,6 +163,7 @@ if (!marketService.__preferredRoutingInstalled) {
       return cached(`${symbol}:${tf}`, tf, async () => {
         const chain = [
           ['SiftingIO', () => siftingGoldCandles(tf)],
+          ['PAXG/XAUT Proxy', () => getGoldProxyCandles(tf)],
           ['TwelveData', () => twelveGoldCandles(tf)],
           ['Dukascopy', () => getDukascopyCandles(symbol, tf)],
           ['Massive', () => getMassiveGoldCandles(tf)]
@@ -246,7 +248,7 @@ if (!marketService.__preferredRoutingInstalled) {
   });
 
   console.log('🧭 Preferred market routing READY');
-  console.log('🥇 XAU candles: SiftingIO → TwelveData → Dukascopy → Massive');
+  console.log('🥇 XAU candles: SiftingIO → PAXG/XAUT Proxy → TwelveData → Dukascopy → Massive');
   console.log('🥇 XAU price: GoldAPI → SiftingIO → Massive');
   console.log('🥇 FX candles: TwelveData → Dukascopy emergency');
 }
