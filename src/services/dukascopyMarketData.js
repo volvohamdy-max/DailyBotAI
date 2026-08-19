@@ -1,11 +1,32 @@
 const candleCache = new Map();
 const inFlight = new Map();
 
+// One global queue for the whole bot. Dukascopy datafeed is file-based and a
+// scan across many symbols can otherwise create a burst of HTTP requests.
+let queueTail = Promise.resolve();
+let lastJobFinishedAt = 0;
+let cooldownUntil = 0;
+const GLOBAL_JOB_GAP_MS = Number(process.env.DUKASCOPY_JOB_GAP_MS) || 2500;
+const RATE_LIMIT_COOLDOWN_MS = Number(process.env.DUKASCOPY_429_COOLDOWN_MS) || 90 * 1000;
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function ttl(interval) {
   if (interval === '5min') return 4 * 60 * 1000;
   if (interval === '15min') return 10 * 60 * 1000;
   if (interval === '1h') return 30 * 60 * 1000;
   return 5 * 60 * 1000;
+}
+
+// A previously validated candle set is still much safer than cascading into
+// several known rate-limited providers. This is only used when a refresh fails.
+function staleGrace(interval) {
+  if (interval === '5min') return 15 * 60 * 1000;
+  if (interval === '15min') return 35 * 60 * 1000;
+  if (interval === '1h') return 90 * 60 * 1000;
+  return 20 * 60 * 1000;
 }
 
 function maxAge(interval) {
@@ -102,6 +123,40 @@ async function loadLibrary() {
   }
 }
 
+function is429(error) {
+  return Number(error?.response?.status) === 429 || /\b429\b/.test(String(error?.message || ''));
+}
+
+function enqueueDatafeedJob(label, job) {
+  const run = async () => {
+    const now = Date.now();
+    if (cooldownUntil > now) {
+      const waitMs = cooldownUntil - now;
+      console.log(`🧊 Dukascopy hub cooldown ${Math.ceil(waitMs / 1000)}s | ${label}`);
+      await sleep(waitMs);
+    }
+
+    const gap = GLOBAL_JOB_GAP_MS - (Date.now() - lastJobFinishedAt);
+    if (gap > 0) await sleep(gap);
+
+    try {
+      return await job();
+    } catch (error) {
+      if (is429(error)) {
+        cooldownUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
+        console.log(`🧊 Dukascopy hub 429 cooldown activated (${Math.round(RATE_LIMIT_COOLDOWN_MS / 1000)}s)`);
+      }
+      throw error;
+    } finally {
+      lastJobFinishedAt = Date.now();
+    }
+  };
+
+  const promise = queueTail.then(run, run);
+  queueTail = promise.catch(() => {});
+  return promise;
+}
+
 async function fetchSource(pair, sourceTimeframe, lookbackMs) {
   const getHistoricalRates = await loadLibrary();
 
@@ -116,11 +171,11 @@ async function fetchSource(pair, sourceTimeframe, lookbackMs) {
     priceType: 'bid',
     volumes: true,
     batchSize: 1,
-    pauseBetweenBatchesMs: 800,
+    pauseBetweenBatchesMs: 1400,
     useCache: true,
     cacheFolderPath: './data/dukascopy-cache',
-    retryCount: 2,
-    pauseBetweenRetriesMs: 1000,
+    retryCount: 1,
+    pauseBetweenRetriesMs: 2500,
     retryOnEmpty: true
   });
 
@@ -128,26 +183,43 @@ async function fetchSource(pair, sourceTimeframe, lookbackMs) {
 }
 
 async function fetchDatafeed(pair, interval) {
-  // Build trading timeframes locally from fresher lower-timeframe data.
-  // This avoids stale ready-made 15m/1h bars observed on the live feed.
-  if (interval === '5min' || interval === '15min') {
-    const lookbackMs = interval === '15min'
-      ? 36 * 60 * 60 * 1000
-      : 18 * 60 * 60 * 1000;
-    const minuteRows = await fetchSource(pair, 'm1', lookbackMs);
-    return aggregate(minuteRows, interval === '15min' ? 15 : 5).slice(-100);
+  // Keep downloads small. We only need enough bars for current indicators,
+  // then cache the validated result and refresh at the timeframe TTL.
+  if (interval === '5min') {
+    const minuteRows = await fetchSource(pair, 'm1', 9 * 60 * 60 * 1000);
+    return aggregate(minuteRows, 5).slice(-100);
+  }
+
+  if (interval === '15min') {
+    const minuteRows = await fetchSource(pair, 'm1', 16 * 60 * 60 * 1000);
+    return aggregate(minuteRows, 15).slice(-100);
   }
 
   if (interval === '1h') {
-    const rows15 = await fetchSource(pair, 'm15', 7 * 24 * 60 * 60 * 1000);
+    const rows15 = await fetchSource(pair, 'm15', 5 * 24 * 60 * 60 * 1000);
     return aggregate(rows15, 60).slice(-100);
   }
 
   if (interval === '1min') {
-    return (await fetchSource(pair, 'm1', 8 * 60 * 60 * 1000)).slice(-100);
+    return (await fetchSource(pair, 'm1', 3 * 60 * 60 * 1000)).slice(-100);
   }
 
   throw new Error(`Unsupported Dukascopy interval: ${interval}`);
+}
+
+function validateCandles(symbol, interval, candles) {
+  const minimum = interval === '15min' ? 50 : interval === '5min' ? 30 : 20;
+  if (candles.length < minimum) {
+    throw new Error(`Insufficient Dukascopy datafeed candles ${symbol} ${interval}: ${candles.length}/${minimum}`);
+  }
+
+  const lastTs = Number(candles.at(-1)?.timestamp);
+  const ageMs = Number.isFinite(lastTs) ? Date.now() - lastTs : Infinity;
+  if (!Number.isFinite(lastTs) || ageMs > maxAge(interval)) {
+    throw new Error(`STALE_DUKASCOPY_DATAFEED ${symbol} ${interval} age=${Math.round(ageMs / 60000)}m`);
+  }
+
+  return ageMs;
 }
 
 async function getDukascopyCandles(pair, interval = '15min') {
@@ -156,7 +228,9 @@ async function getDukascopyCandles(pair, interval = '15min') {
 
   const key = `${symbol}:${interval}`;
   const cached = candleCache.get(key);
-  if (cached && Date.now() - cached.time <= ttl(interval)) {
+  const cacheAge = cached ? Date.now() - cached.time : Infinity;
+
+  if (cached && cacheAge <= ttl(interval)) {
     console.log(`🟢 Dukascopy datafeed cache: ${key}`);
     return cached.candles;
   }
@@ -166,24 +240,22 @@ async function getDukascopyCandles(pair, interval = '15min') {
     return inFlight.get(key);
   }
 
-  const promise = (async () => {
-    const candles = await fetchDatafeed(symbol, interval);
-    const minimum = interval === '15min' ? 55 : interval === '5min' ? 30 : 20;
-
-    if (candles.length < minimum) {
-      throw new Error(`Insufficient Dukascopy datafeed candles ${symbol} ${interval}: ${candles.length}/${minimum}`);
+  const promise = enqueueDatafeedJob(key, async () => {
+    try {
+      const candles = await fetchDatafeed(symbol, interval);
+      const ageMs = validateCandles(symbol, interval, candles);
+      candleCache.set(key, { candles, time: Date.now() });
+      console.log(`✅ DUKASCOPY DATAFEED ${symbol} ${interval}: ${candles.length} candles | age=${Math.round(ageMs / 60000)}m`);
+      return candles;
+    } catch (error) {
+      // Stale-if-error: use the last validated set for a bounded grace window.
+      if (cached && cacheAge <= ttl(interval) + staleGrace(interval)) {
+        console.log(`🛟 Dukascopy stale-if-error cache: ${key} | cacheAge=${Math.round(cacheAge / 60000)}m | ${error.message}`);
+        return cached.candles;
+      }
+      throw error;
     }
-
-    const lastTs = Number(candles.at(-1)?.timestamp);
-    const ageMs = Number.isFinite(lastTs) ? Date.now() - lastTs : Infinity;
-    if (!Number.isFinite(lastTs) || ageMs > maxAge(interval)) {
-      throw new Error(`STALE_DUKASCOPY_DATAFEED ${symbol} ${interval} age=${Math.round(ageMs / 60000)}m`);
-    }
-
-    candleCache.set(key, { candles, time: Date.now() });
-    console.log(`✅ DUKASCOPY DATAFEED ${symbol} ${interval}: ${candles.length} candles | age=${Math.round(ageMs / 60000)}m`);
-    return candles;
-  })();
+  });
 
   inFlight.set(key, promise);
   try {
