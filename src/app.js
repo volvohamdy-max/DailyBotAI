@@ -18,9 +18,15 @@ const registerAdminCommands = require('./admin/adminCommands');
 const registerTradeAdminControls = require('./admin/tradeAdminControls');
 const { registerAdminV21 } = require('./admin/adminControlCenterV21');
 const { getBoolSetting: getAdminBoolSetting } = require('./database/adminControl');
+
+// Install calendar enhancements BEFORE scheduler/newsService are required,
+// because newsService destructures getMultiSourceCalendar at load time.
+require('./services/installNewsEnhancements');
+
 const startScheduler = require('./services/scheduler');
 const { startBreakingNews } = require('./services/breakingNewsService');
 const { startFedLiveNews } = require('./services/fedLiveNewsService');
+const { startDailyNewsBrief } = require('./services/dailyNewsBriefService');
 const languageRouter = require('./utils/languageRouter');
 const registerVirtualPortfolio = require('./commands/virtualPortfolio');
 const { registerStrategyLab } = require('./handlers/myStrategy');
@@ -149,10 +155,11 @@ async function main() {
   startScheduler(bot);
   startBreakingNews(bot);
   startFedLiveNews(bot);
+  startDailyNewsBrief(bot);
   console.log('Scheduler started.');
 
   try {
-registerVirtualPortfolio(bot);
+    registerVirtualPortfolio(bot);
 
     await bot.launch();
     console.log('Telegram Forex AI bot is running. Open Telegram and send /start.');
