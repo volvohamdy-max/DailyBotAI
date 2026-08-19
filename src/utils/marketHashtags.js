@@ -1,5 +1,5 @@
 // Centralized formatter for market/news text.
-// Adds Telegram-searchable hashtags to currencies, assets and major US indices
+// Adds Telegram-searchable hashtags to currencies, assets and major indices
 // without changing trading logic or numeric values.
 
 const RULES = [
@@ -29,6 +29,23 @@ const RULES = [
   [/\bNZD\b/gi, '#NZD'],
   [/\bCNY\b/gi, '#CNY'],
 
+  // English market names.
+  [/\bGOLD\b/gi, '#Gold'],
+  [/\bU\.?S\.?\s+DOLLAR\b/gi, '#USDollar'],
+  [/\bUS\s+DOLLAR\b/gi, '#USDollar'],
+  [/\bDOLLAR\b/gi, '#Dollar'],
+  [/\bEURO\b/gi, '#Euro'],
+  [/\bPOUND\s+STERLING\b/gi, '#PoundSterling'],
+  [/\bBRITISH\s+POUND\b/gi, '#BritishPound'],
+  [/\bYEN\b/gi, '#Yen'],
+  [/\bSWISS\s+FRANC\b/gi, '#SwissFranc'],
+  [/\bCANADIAN\s+DOLLAR\b/gi, '#CanadianDollar'],
+  [/\bAUSTRALIAN\s+DOLLAR\b/gi, '#AustralianDollar'],
+  [/\bNEW\s+ZEALAND\s+DOLLAR\b/gi, '#NewZealandDollar'],
+  [/\bBITCOIN\b/gi, '#Bitcoin'],
+  [/\bCRUDE\s+OIL\b/gi, '#CrudeOil'],
+  [/\bOIL\b/gi, '#Oil'],
+
   [/\bNASDAQ(?:\s*100)?\b/gi, '#NASDAQ'],
   [/\bNAS100\b/gi, '#NAS100'],
   [/\bUS100\b/gi, '#US100'],
@@ -52,7 +69,9 @@ const RULES = [
   [/الذهب/g, '#الذهب'],
   [/وول ستريت/g, '#وول_ستريت'],
   [/داو جونز/g, '#داو_جونز'],
-  [/ناسداك/g, '#ناسداك']
+  [/ناسداك/g, '#ناسداك'],
+  [/(?:البيتكوين|بيتكوين)/g, '#بيتكوين'],
+  [/النفط/g, '#النفط']
 ];
 
 function isInsideExistingHashtag(whole, offset) {
