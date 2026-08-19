@@ -2,16 +2,14 @@ const { isPairMarketOpen } = require('../utils/marketHours');
 const { analyzePair } = require('./analysisGate');
 const { evaluateScalpEntry } = require('./scalpingEntryEngine');
 
-const SCANNER_PAIRS = [
-    'XAUUSD',
-    'BTCUSD',
-    'EURUSD',
-    'GBPUSD',
-    'USDJPY',
-    'EURJPY',
-    'GBPJPY',
-    'CHFJPY'
-];
+const ALWAYS_SCAN = ['XAUUSD', 'BTCUSD'];
+const FX_PAIRS = ['EURUSD', 'GBPUSD', 'USDJPY', 'EURJPY', 'GBPJPY', 'CHFJPY'];
+const FX_BATCH_SIZE = Number(process.env.SMART_SCANNER_FX_BATCH_SIZE) || 2;
+const SNAPSHOT_MAX_AGE_MS = Number(process.env.SMART_SCANNER_SNAPSHOT_MAX_AGE_MS) || 20 * 60 * 1000;
+const PAIR_TIMEOUT_MS = Number(process.env.SMART_SCANNER_PAIR_TIMEOUT_MS) || 20000;
+
+const snapshots = new Map();
+let fxCursor = 0;
 
 function calculateTechnicalScore(indicators, direction = 'WAIT') {
     if (!indicators) return 0;
@@ -92,56 +90,130 @@ function getAIConfidence(signal) {
     return Math.max(0, Math.min(100, Math.round(confidence)));
 }
 
-async function scanMarkets() {
-    const results = [];
+function withTimeout(promise, ms, label) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`SCANNER_TIMEOUT_${label}_${Math.round(ms / 1000)}S`)), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
-    for (const pair of SCANNER_PAIRS) {
-        if (!isPairMarketOpen(pair)) {
-            console.log(`🌙 Market closed — scanner skipped ${pair}`);
+function nextFxBatch() {
+    const count = Math.max(1, Math.min(FX_BATCH_SIZE, FX_PAIRS.length));
+    const batch = [];
+    for (let i = 0; i < count; i++) {
+        batch.push(FX_PAIRS[(fxCursor + i) % FX_PAIRS.length]);
+    }
+    fxCursor = (fxCursor + count) % FX_PAIRS.length;
+    return batch;
+}
+
+function buildRow(pair, result) {
+    if (!result || !result.indicators) return null;
+    const indicators = result.indicators;
+    let action = 'WAIT';
+    if (result.signal && (result.signal.action === 'BUY' || result.signal.action === 'SELL')) {
+        action = result.signal.action;
+    } else {
+        action = getTechnicalDirection(indicators);
+    }
+
+    let score = calculateTechnicalScore(indicators, action);
+    const confidence = getAIConfidence(result.signal);
+
+    if (confidence !== null && (action === 'BUY' || action === 'SELL')) {
+        score = Math.round(score * 0.65 + confidence * 0.35);
+    }
+    if (action === 'WAIT') score = Math.min(score, 45);
+
+    return {
+        pair: pair.toUpperCase(),
+        action,
+        score,
+        confidence,
+        scalpEntry: null,
+        indicators,
+        analyzedAt: Date.now(),
+        freshThisCycle: true
+    };
+}
+
+async function analyzeOne(pair) {
+    if (!isPairMarketOpen(pair)) {
+        console.log(`🌙 Market closed — scanner skipped ${pair}`);
+        return null;
+    }
+
+    console.log(`🔎 Smart Scanner analyzing ${pair}...`);
+    const result = await withTimeout(analyzePair(pair), PAIR_TIMEOUT_MS, pair);
+    const row = buildRow(pair, result);
+    if (!row) {
+        console.log(`⚠️ No analysis for ${pair}`);
+        return null;
+    }
+
+    snapshots.set(pair, { row: { ...row, freshThisCycle: false }, time: Date.now() });
+    console.log(`📊 SMART RESULT ${pair}:`, {
+        action: row.action,
+        score: row.score,
+        confidence: row.confidence
+    });
+    return row;
+}
+
+function addRecentSnapshots(results, scannedSet) {
+    const now = Date.now();
+    for (const pair of [...ALWAYS_SCAN, ...FX_PAIRS]) {
+        if (scannedSet.has(pair)) continue;
+        const snap = snapshots.get(pair);
+        if (!snap) continue;
+        const age = now - snap.time;
+        if (age > SNAPSHOT_MAX_AGE_MS) {
+            snapshots.delete(pair);
             continue;
         }
+        results.push({
+            ...snap.row,
+            freshThisCycle: false,
+            snapshotAgeMs: age
+        });
+    }
+}
 
+async function scanMarkets() {
+    const results = [];
+    const fxBatch = nextFxBatch();
+    const pairsThisCycle = [...ALWAYS_SCAN, ...fxBatch];
+    const scannedSet = new Set(pairsThisCycle);
+
+    console.log(`🧭 Smart Scanner FX rotation: ${fxBatch.join(', ')}`);
+
+    for (const pair of pairsThisCycle) {
         try {
-            console.log(`🔎 Smart Scanner analyzing ${pair}...`);
-            const result = await analyzePair(pair);
-            if (!result || !result.indicators) {
-                console.log(`⚠️ No analysis for ${pair}`);
-                continue;
-            }
-
-            const indicators = result.indicators;
-            let action = 'WAIT';
-            if (result.signal && (result.signal.action === 'BUY' || result.signal.action === 'SELL')) {
-                action = result.signal.action;
-            } else {
-                action = getTechnicalDirection(indicators);
-            }
-
-            let score = calculateTechnicalScore(indicators, action);
-            const confidence = getAIConfidence(result.signal);
-
-            if (confidence !== null && (action === 'BUY' || action === 'SELL')) {
-                score = Math.round(score * 0.65 + confidence * 0.35);
-            }
-            if (action === 'WAIT') score = Math.min(score, 45);
-
-            results.push({
-                pair: pair.toUpperCase(),
-                action,
-                score,
-                confidence,
-                scalpEntry: null,
-                indicators
-            });
-
-            console.log(`📊 SMART RESULT ${pair}:`, { action, score, confidence });
+            const row = await analyzeOne(pair);
+            if (row) results.push(row);
         } catch (error) {
             console.log(`❌ Scanner error ${pair}:`, error.message);
+            const snap = snapshots.get(pair);
+            if (snap && Date.now() - snap.time <= SNAPSHOT_MAX_AGE_MS) {
+                console.log(`🛟 Scanner snapshot fallback ${pair}: ${Math.round((Date.now() - snap.time) / 60000)}m old`);
+                results.push({
+                    ...snap.row,
+                    freshThisCycle: false,
+                    snapshotAgeMs: Date.now() - snap.time
+                });
+            }
         }
     }
 
+    addRecentSnapshots(results, scannedSet);
+
     const actionable = results
-        .filter(row => (row.action === 'BUY' || row.action === 'SELL') && Number(row.confidence) >= 60)
+        .filter(row =>
+            row.freshThisCycle === true &&
+            (row.action === 'BUY' || row.action === 'SELL') &&
+            Number(row.confidence) >= 60
+        )
         .sort((a, b) => Number(b.score || 0) - Number(a.score || 0));
 
     const selectedPairs = new Set();
@@ -153,6 +225,11 @@ async function scanMarkets() {
     console.log('⚡ 5M SCALP BUDGET:', [...selectedPairs]);
 
     for (const row of results) {
+        if (row.freshThisCycle !== true) {
+            row.scalpEntry = { status: 'NOT_CHECKED', reason: '15M_SNAPSHOT' };
+            continue;
+        }
+
         if (row.action !== 'BUY' && row.action !== 'SELL') {
             row.scalpEntry = { status: 'NOT_APPLICABLE', reason: 'NO_ACTION' };
             continue;
@@ -166,7 +243,11 @@ async function scanMarkets() {
         }
 
         try {
-            const scalpEntry = await evaluateScalpEntry(row.pair, row.action, row.indicators);
+            const scalpEntry = await withTimeout(
+                evaluateScalpEntry(row.pair, row.action, row.indicators),
+                PAIR_TIMEOUT_MS,
+                `${row.pair}_5M`
+            );
             row.scalpEntry = scalpEntry;
             row.score = Math.max(0, Math.min(100, Number(row.score || 0) + Number(scalpEntry.scoreAdjustment || 0)));
 
