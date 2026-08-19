@@ -1,7 +1,6 @@
 const { analyzePair } = require('./analysisGate');
 const { buildGoldScalpResult } = require('./goldScalper');
 const { scanGoldRegimeSignals } = require('./goldRegimeSignals');
-const { scanGoldPowerTrade } = require('./goldPowerTrade');
 const { allUsers } = require('../database/users');
 const {
   addTrade,
@@ -50,7 +49,7 @@ async function scanMarket(bot) {
   await scanGoldRegimeSignals(bot);
 
   // Independent GOLD POWER engine; existing Gold Scalper remains untouched.
-  await scanGoldPowerTrade(bot);
+  // Gold Power strategy removed.
 
   const scanStart = Date.now();
   console.log("🚀 SCAN START:", new Date().toLocaleTimeString());
