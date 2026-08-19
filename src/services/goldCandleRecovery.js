@@ -3,8 +3,14 @@ const { getCandles } = require('./marketService');
 
 const recoveryCache = new Map();
 const inFlight = new Map();
-const RECOVERY_CACHE_MS = Number(process.env.GOLD_CANDLE_RECOVERY_CACHE_MS) || 30000;
 const TIMEOUT_MS = Number(process.env.MARKET_PROVIDER_TIMEOUT_MS) || 10000;
+
+function recoveryTtl(interval) {
+  if (interval === '5min') return Number(process.env.GOLD_CANDLE_RECOVERY_CACHE_5M_MS) || 4 * 60 * 1000;
+  if (interval === '15min') return Number(process.env.GOLD_CANDLE_RECOVERY_CACHE_15M_MS) || 10 * 60 * 1000;
+  if (interval === '1h') return Number(process.env.GOLD_CANDLE_RECOVERY_CACHE_1H_MS) || 30 * 60 * 1000;
+  return Number(process.env.GOLD_CANDLE_RECOVERY_CACHE_MS) || 5 * 60 * 1000;
+}
 
 function intervalMap(interval) {
   return ({
@@ -21,6 +27,10 @@ function usableVolumeCount(candles, lookback = 24) {
     const v = Number(c?.volume ?? c?.v ?? null);
     return count + (Number.isFinite(v) && v > 0 ? 1 : 0);
   }, 0);
+}
+
+function is429(error) {
+  return Number(error?.response?.status) === 429 || /\b429\b/.test(String(error?.message || ''));
 }
 
 async function directSiftingGold(interval) {
@@ -104,15 +114,26 @@ async function directSiftingGold(interval) {
 }
 
 async function getGoldCandlesResilient(interval) {
-  try {
-    return await getCandles('XAUUSD', interval);
-  } catch (primaryError) {
-    const key = `XAUUSD:${interval}`;
-    const cached = recoveryCache.get(key);
+  const key = `XAUUSD:${interval}`;
 
-    if (cached && Date.now() - cached.time <= RECOVERY_CACHE_MS) {
+  try {
+    const candles = await getCandles('XAUUSD', interval);
+    recoveryCache.set(key, { candles, time: Date.now() });
+    return candles;
+  } catch (primaryError) {
+    const cached = recoveryCache.get(key);
+    const ttl = recoveryTtl(interval);
+
+    if (cached && Date.now() - cached.time <= ttl) {
       console.log(`🛟 GOLD CANDLE RECOVERY CACHE: ${key}`);
       return cached.candles;
+    }
+
+    // Do NOT immediately hit Sifting again after it just returned 429.
+    // That only extends the rate-limit storm. Let the provider circuit cool down.
+    if (is429(primaryError)) {
+      console.log(`🧊 GOLD CANDLE RECOVERY deferred after 429: ${key}`);
+      throw primaryError;
     }
 
     if (inFlight.has(key)) {
