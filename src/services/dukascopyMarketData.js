@@ -19,6 +19,12 @@ function pairName(pair) {
   return `${p.slice(0, 3)}/${p.slice(3, 6)}`;
 }
 
+function canonicalName(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+}
+
 function ttl(interval) {
   if (interval === '5min') return 4 * 60 * 1000;
   if (interval === '15min') return 10 * 60 * 1000;
@@ -67,7 +73,38 @@ function extractArray(data) {
   if (Array.isArray(data?.data)) return data.data;
   if (Array.isArray(data?.result)) return data.result;
   if (Array.isArray(data?.values)) return data.values;
+  if (Array.isArray(data?.instruments)) return data.instruments;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.rows)) return data.rows;
+
+  if (data && typeof data === 'object') {
+    const numericValues = Object.entries(data)
+      .filter(([key]) => /^\d+$/.test(key))
+      .map(([, value]) => value);
+    if (numericValues.length) return numericValues;
+  }
+
   return [];
+}
+
+function instrumentFields(row) {
+  if (Array.isArray(row)) {
+    return {
+      id: row[0],
+      names: [row[1], row[3]].filter(Boolean)
+    };
+  }
+
+  return {
+    id: row?.id ?? row?.instrumentId ?? row?.instrument,
+    names: [
+      row?.name,
+      row?.symbol,
+      row?.ticker,
+      row?.nameLong,
+      row?.instrumentName
+    ].filter(Boolean)
+  };
 }
 
 async function instrumentId(pair) {
@@ -78,20 +115,37 @@ async function instrumentId(pair) {
   const data = await request('api/instrumentList', {
     fields: 'id,name,pipValue,nameLong'
   });
-  const rows = extractArray(data);
-  const wanted = pairName(key).replace(/\s+/g, '').toUpperCase();
 
+  const rows = extractArray(data);
+  if (!rows.length) {
+    const detail = data?.message || data?.error || data?.status || 'empty instrument list';
+    throw new Error(`Dukascopy instrument list unavailable: ${detail}`);
+  }
+
+  const wanted = canonicalName(key);
   const row = rows.find(item => {
-    const name = String(item?.name ?? item?.symbol ?? item?.ticker ?? '').replace(/\s+/g, '').toUpperCase();
-    return name === wanted || name === key;
+    const fields = instrumentFields(item);
+    return fields.names.some(name => canonicalName(name) === wanted);
   });
 
-  const id = Number(row?.id ?? row?.instrumentId ?? row?.instrument);
+  const fields = row ? instrumentFields(row) : null;
+  const id = Number(fields?.id);
+
   if (!Number.isFinite(id)) {
-    throw new Error(`Dukascopy instrument not found: ${wanted}`);
+    const examples = rows
+      .slice(0, 5)
+      .map(item => instrumentFields(item).names[0])
+      .filter(Boolean)
+      .join(', ');
+
+    throw new Error(
+      `Dukascopy instrument not found: ${pairName(key)}` +
+      (examples ? ` | examples=${examples}` : '')
+    );
   }
 
   instrumentCache.set(key, { id, time: Date.now() });
+  console.log(`🟢 Dukascopy instrument resolved: ${key} -> ${id}`);
   return id;
 }
 
