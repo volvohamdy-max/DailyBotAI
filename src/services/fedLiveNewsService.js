@@ -46,7 +46,10 @@ function keyFor(feedId, item) {
     item.title || ''
   ].join('|');
 
-  return `fedlive_${crypto.createHash('sha1').update(raw).digest('hex').slice(0, 20)}`;
+  // v2 intentionally bypasses the old startup-baseline marks once.
+  // Old feed items are immediately re-baselined; only recent relevant
+  // items stay unmarked and are eligible for catch-up delivery.
+  return `fedlive_v2_${crypto.createHash('sha1').update(raw).digest('hex').slice(0, 20)}`;
 }
 
 function alreadySent(key) {
@@ -163,7 +166,6 @@ async function checkFedLiveNews(bot) {
       const items = await fetchFeed(feed);
       const candidates = items
         .filter(isRelevant)
-        .filter(item => isRecent(item) || initialized)
         .slice(0, 12)
         .reverse();
 
@@ -171,7 +173,7 @@ async function checkFedLiveNews(bot) {
         const key = keyFor(feed.id, item);
         if (alreadySent(key)) continue;
 
-        // On initial catch-up, do not flood very old unsent feed entries.
+        // Never flood historical feed items during startup/version migration.
         if (!isRecent(item)) {
           markSent(key);
           continue;
