@@ -1,6 +1,6 @@
 const { scanMarkets: scanMarketsRaw } = require('./smartScanner');
 
-const CACHE_MS = Number(process.env.SMART_SCANNER_CACHE_MS) || 30000;
+const CACHE_MS = Number(process.env.SMART_SCANNER_CACHE_MS) || 4 * 60 * 1000;
 
 let inFlight = null;
 let lastResult = null;
