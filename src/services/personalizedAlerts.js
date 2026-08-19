@@ -62,13 +62,14 @@ async function runPersonalizedAlerts(bot) {
   }
 
   const opportunities = results.filter((item) =>
+    item.freshThisCycle === true &&
     (item.action === 'BUY' || item.action === 'SELL') &&
     Number(item.score) >= MIN_SMART_SCORE &&
     Number.isFinite(Number(item.confidence))
   );
 
   if (!opportunities.length) {
-    console.log('🟡 Personalized alerts: no qualifying opportunities');
+    console.log('🟡 Personalized alerts: no qualifying fresh opportunities');
     return;
   }
 
