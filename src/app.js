@@ -18,6 +18,7 @@ const registerAdminCommands = require('./admin/adminCommands');
 const registerTradeAdminControls = require('./admin/tradeAdminControls');
 const { registerAdminV21 } = require('./admin/adminControlCenterV21');
 const { getBoolSetting: getAdminBoolSetting } = require('./database/adminControl');
+const { addMarketHashtags } = require('./utils/marketHashtags');
 
 // Install calendar enhancements BEFORE scheduler/newsService are required,
 // because newsService destructures getMultiSourceCalendar at load time.
@@ -30,6 +31,36 @@ const { startDailyNewsBrief } = require('./services/dailyNewsBriefService');
 const languageRouter = require('./utils/languageRouter');
 const registerVirtualPortfolio = require('./commands/virtualPortfolio');
 const { registerStrategyLab } = require('./handlers/myStrategy');
+
+function installTelegramMarketHashtags(bot) {
+  if (bot.telegram.__marketHashtagsInstalled) return;
+
+  const rawSendMessage = bot.telegram.sendMessage.bind(bot.telegram);
+  bot.telegram.sendMessage = function sendMessageWithMarketHashtags(chatId, text, extra) {
+    const formatted = typeof text === 'string' ? addMarketHashtags(text) : text;
+    return rawSendMessage(chatId, formatted, extra);
+  };
+
+  // Keep captions searchable too when news/analysis is sent with media.
+  for (const method of ['sendPhoto', 'sendVideo', 'sendDocument', 'sendAnimation']) {
+    if (typeof bot.telegram[method] !== 'function') continue;
+    const raw = bot.telegram[method].bind(bot.telegram);
+    bot.telegram[method] = function mediaWithMarketHashtags(chatId, media, extra = {}) {
+      const nextExtra = extra && typeof extra === 'object' ? { ...extra } : extra;
+      if (nextExtra && typeof nextExtra.caption === 'string') {
+        nextExtra.caption = addMarketHashtags(nextExtra.caption);
+      }
+      return raw(chatId, media, nextExtra);
+    };
+  }
+
+  Object.defineProperty(bot.telegram, '__marketHashtagsInstalled', {
+    value: true,
+    enumerable: false
+  });
+
+  console.log('🏷️ Global market hashtags READY | Arabic + English symbols/currencies/indices');
+}
 
 function removeLegacyGoldPowerData() {
   try {
@@ -88,6 +119,7 @@ async function main() {
   console.log('Database is ready.');
 
   const bot = new Telegraf(config.botToken);
+  installTelegramMarketHashtags(bot);
 
   await bot.telegram.setMyCommands([
     { command: 'start', description: '🚀 Start / بدء' },
