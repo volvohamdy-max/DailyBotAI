@@ -42,9 +42,11 @@ if (missingPackages.length > 0) {
   process.exit(1);
 }
 
-// Install provider fallbacks BEFORE src/app.js loads scheduler/scanners/strategies.
-// This ensures modules that destructure marketService functions receive the
-// wrapped versions from the first require, without changing trading logic.
+// Install provider routing BEFORE src/app.js loads scheduler/scanners/strategies.
+// Yahoo is used for no-key forex candles; XAU calls are serialized to avoid
+// burst-rate 429s. Massive and Dukascopy remain optional fallbacks.
+require('./src/services/installYahooForexFallback');
+require('./src/services/installGoldRequestQueue');
 require('./src/services/installMassiveMarketFallback');
 require('./src/services/installDukascopyFallback');
 
