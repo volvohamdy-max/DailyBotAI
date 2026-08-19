@@ -22,8 +22,50 @@ const startScheduler = require('./services/scheduler');
 const { startBreakingNews } = require('./services/breakingNewsService');
 const languageRouter = require('./utils/languageRouter');
 const registerVirtualPortfolio = require('./commands/virtualPortfolio');
-const registerPowerTrades = require('./commands/powerTrades');
 const { registerStrategyLab } = require('./handlers/myStrategy');
+
+function removeLegacyGoldPowerData() {
+  try {
+    const powerTrades = db.prepare(`
+      SELECT id
+      FROM trades
+      WHERE UPPER(COALESCE(telegram_id, '')) = 'VIP_POWER'
+    `).all();
+
+    if (!powerTrades.length) return;
+
+    db.prepare(`
+      UPDATE trades
+      SET status = 'cancelled'
+      WHERE UPPER(COALESCE(telegram_id, '')) = 'VIP_POWER'
+        AND status IN ('open', 'secured', 'target1')
+    `).run();
+
+    try {
+      const deletePerformance = db.prepare(
+        'DELETE FROM trade_performance WHERE trade_id = ?'
+      );
+
+      for (const trade of powerTrades) {
+        deletePerformance.run(Number(trade.id));
+      }
+    } catch (error) {
+      console.log(
+        '⚠️ GOLD POWER performance cleanup skipped:',
+        error.message
+      );
+    }
+
+    console.log(
+      `🧹 GOLD POWER removed | ${powerTrades.length} legacy trade record(s) excluded from performance`
+    );
+  } catch (error) {
+    console.log(
+      '⚠️ GOLD POWER legacy cleanup skipped:',
+      error.message
+    );
+  }
+}
 
 async function main() {
   console.log('Starting Telegram Forex AI bot...');
@@ -35,6 +77,7 @@ async function main() {
 
   await db.ready;
   initDatabase();
+  removeLegacyGoldPowerData();
   console.log('Database is ready.');
 
   const bot = new Telegraf(config.botToken);
@@ -86,7 +129,6 @@ async function main() {
   registerAdaptiveIntelligence(bot);
   registerShadowAudit(bot);
   registerReport14(bot);
-  registerPowerTrades(bot);
   registerMarketMap(bot);
   registerStrategyLab(bot);
   registerSlashCommands(bot);
