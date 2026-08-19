@@ -7,7 +7,10 @@ WORKDIR /opt/app
 ENV NODE_ENV=production
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+# package.json may gain runtime data-provider dependencies before the lockfile
+# is refreshed on Termux. npm install keeps deployment resilient and installs
+# the exact current runtime dependency set.
+RUN npm install --omit=dev && npm cache clean --force
 
 COPY . .
 
