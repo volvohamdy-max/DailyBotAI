@@ -41,12 +41,15 @@ if (missingPackages.length > 0) {
   process.exit(1);
 }
 
-// Preferred routing is installed before src/app.js loads any strategy:
-//   XAU candles: SiftingIO -> TwelveData -> Dukascopy -> Massive
+// Base provider routing and final priority override are installed before
+// src/app.js loads any strategy.
+// Final order:
+//   XAU candles: PAXG/XAUT Proxy -> SiftingIO -> TwelveData -> Dukascopy -> Massive
 //   XAU live price: GoldAPI -> SiftingIO -> Massive
-//   FX candles: TwelveData -> Dukascopy emergency
+//   FX candles: SiftingIO -> TwelveData -> Dukascopy emergency
 // BTCUSD stays on the native Binance path.
 require('./src/services/installPreferredMarketRouting');
+require('./src/services/installFinalMarketPriority');
 
 console.log('Loading Telegram Forex AI bot source...');
 require(appPath);
