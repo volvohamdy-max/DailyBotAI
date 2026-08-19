@@ -1,12 +1,10 @@
 const candleCache = new Map();
 const inFlight = new Map();
 
-// One global queue for the whole bot. Dukascopy datafeed is file-based and a
-// scan across many symbols can otherwise create a burst of HTTP requests.
 let queueTail = Promise.resolve();
 let lastJobFinishedAt = 0;
 let cooldownUntil = 0;
-const GLOBAL_JOB_GAP_MS = Number(process.env.DUKASCOPY_JOB_GAP_MS) || 10000;
+const GLOBAL_JOB_GAP_MS = Number(process.env.DUKASCOPY_JOB_GAP_MS) || 8000;
 const RATE_LIMIT_COOLDOWN_MS = Number(process.env.DUKASCOPY_429_COOLDOWN_MS) || 3 * 60 * 1000;
 
 function sleep(ms) {
@@ -20,8 +18,6 @@ function ttl(interval) {
   return 5 * 60 * 1000;
 }
 
-// A previously validated candle set is still much safer than cascading into
-// several known rate-limited providers. This is only used when a refresh fails.
 function staleGrace(interval) {
   if (interval === '5min') return 15 * 60 * 1000;
   if (interval === '15min') return 35 * 60 * 1000;
@@ -38,7 +34,6 @@ function maxAge(interval) {
 
 function normalize(rows) {
   if (!Array.isArray(rows)) return [];
-
   return rows
     .map(row => {
       if (Array.isArray(row)) {
@@ -51,7 +46,6 @@ function normalize(rows) {
           volume: Number.isFinite(Number(row[5])) && Number(row[5]) > 0 ? Number(row[5]) : null
         };
       }
-
       return {
         timestamp: Number(row?.timestamp),
         open: Number(row?.open),
@@ -72,34 +66,22 @@ function normalize(rows) {
 function aggregate(rows, minutes) {
   const bucketMs = minutes * 60 * 1000;
   const buckets = new Map();
-
   for (const c of rows) {
     const ts = Math.floor(c.timestamp / bucketMs) * bucketMs;
     let b = buckets.get(ts);
-
     if (!b) {
-      b = {
-        timestamp: ts,
-        open: c.open,
-        high: c.high,
-        low: c.low,
-        close: c.close,
-        volume: 0,
-        hasVolume: false
-      };
+      b = { timestamp: ts, open: c.open, high: c.high, low: c.low, close: c.close, volume: 0, hasVolume: false };
       buckets.set(ts, b);
     } else {
       b.high = Math.max(b.high, c.high);
       b.low = Math.min(b.low, c.low);
       b.close = c.close;
     }
-
     if (Number.isFinite(Number(c.volume)) && Number(c.volume) > 0) {
       b.volume += Number(c.volume);
       b.hasVolume = true;
     }
   }
-
   return [...buckets.values()]
     .sort((a, b) => a.timestamp - b.timestamp)
     .map(b => ({
@@ -131,9 +113,7 @@ function enqueueDatafeedJob(label, job) {
   const run = async () => {
     const now = Date.now();
     if (cooldownUntil > now) {
-      const waitMs = cooldownUntil - now;
-      console.log(`🧊 Dukascopy hub cooldown ${Math.ceil(waitMs / 1000)}s | ${label}`);
-      await sleep(waitMs);
+      throw new Error(`DUKASCOPY_HUB_COOLDOWN_${Math.ceil((cooldownUntil - now) / 1000)}S`);
     }
 
     const gap = GLOBAL_JOB_GAP_MS - (Date.now() - lastJobFinishedAt);
@@ -159,7 +139,6 @@ function enqueueDatafeedJob(label, job) {
 
 async function fetchSource(pair, sourceTimeframe, lookbackMs) {
   const getHistoricalRates = await loadLibrary();
-
   const rows = await getHistoricalRates({
     instrument: String(pair || '').toLowerCase(),
     dates: {
@@ -171,32 +150,36 @@ async function fetchSource(pair, sourceTimeframe, lookbackMs) {
     priceType: 'bid',
     volumes: true,
     batchSize: 1,
-    pauseBetweenBatchesMs: 2200,
+    pauseBetweenBatchesMs: 1600,
     useCache: true,
     cacheFolderPath: './data/dukascopy-cache',
     retryCount: 0,
-    retryOnEmpty: true
+    retryOnEmpty: false
   });
-
   return normalize(rows);
 }
 
 async function fetchDatafeed(pair, interval) {
-  // Keep downloads small. We only need enough bars for current indicators,
-  // then cache the validated result and refresh at the timeframe TTL.
   if (interval === '5min') {
     const minuteRows = await fetchSource(pair, 'm1', 9 * 60 * 60 * 1000);
-    return aggregate(minuteRows, 5).slice(-100);
+    if (minuteRows.length >= 150) return aggregate(minuteRows, 5).slice(-100);
+    const direct = await fetchSource(pair, 'm5', 12 * 60 * 60 * 1000);
+    return direct.slice(-100);
   }
 
   if (interval === '15min') {
     const minuteRows = await fetchSource(pair, 'm1', 16 * 60 * 60 * 1000);
-    return aggregate(minuteRows, 15).slice(-100);
+    if (minuteRows.length >= 300) return aggregate(minuteRows, 15).slice(-100);
+    console.log(`🟢 Dukascopy direct m15 fallback: ${pair}`);
+    const direct = await fetchSource(pair, 'm15', 30 * 60 * 60 * 1000);
+    return direct.slice(-100);
   }
 
   if (interval === '1h') {
     const rows15 = await fetchSource(pair, 'm15', 5 * 24 * 60 * 60 * 1000);
-    return aggregate(rows15, 60).slice(-100);
+    if (rows15.length >= 80) return aggregate(rows15, 60).slice(-100);
+    const direct = await fetchSource(pair, 'h1', 7 * 24 * 60 * 60 * 1000);
+    return direct.slice(-100);
   }
 
   if (interval === '1min') {
@@ -211,13 +194,11 @@ function validateCandles(symbol, interval, candles) {
   if (candles.length < minimum) {
     throw new Error(`Insufficient Dukascopy datafeed candles ${symbol} ${interval}: ${candles.length}/${minimum}`);
   }
-
   const lastTs = Number(candles.at(-1)?.timestamp);
   const ageMs = Number.isFinite(lastTs) ? Date.now() - lastTs : Infinity;
   if (!Number.isFinite(lastTs) || ageMs > maxAge(interval)) {
     throw new Error(`STALE_DUKASCOPY_DATAFEED ${symbol} ${interval} age=${Math.round(ageMs / 60000)}m`);
   }
-
   return ageMs;
 }
 
@@ -247,7 +228,6 @@ async function getDukascopyCandles(pair, interval = '15min') {
       console.log(`✅ DUKASCOPY DATAFEED ${symbol} ${interval}: ${candles.length} candles | age=${Math.round(ageMs / 60000)}m`);
       return candles;
     } catch (error) {
-      // Stale-if-error: use the last validated set for a bounded grace window.
       if (cached && cacheAge <= ttl(interval) + staleGrace(interval)) {
         console.log(`🛟 Dukascopy stale-if-error cache: ${key} | cacheAge=${Math.round(cacheAge / 60000)}m | ${error.message}`);
         return cached.candles;
