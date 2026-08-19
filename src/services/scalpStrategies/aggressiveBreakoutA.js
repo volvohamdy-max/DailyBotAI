@@ -1,4 +1,5 @@
-const { getCandles, getPrice } = require('../marketService');
+const { getPrice } = require('../marketService');
+const { getGoldCandlesResilient } = require('../goldCandleRecovery');
 
 const CONFIG = {
   id: 'AGGRESSIVE_BREAKOUT_A',
@@ -23,7 +24,7 @@ function recentSwing(c,side,k=CONFIG.swingLookback){const a=c.slice(-k);return s
 function trend15(c){const v=c.map(x=>n(x.close)).filter(Number.isFinite);const e20=ema(v,20),e50=ema(v,50);return e20>e50?'BUY':e20<e50?'SELL':null}
 
 async function scan(){
-  const [r5,r15,px]=await Promise.all([getCandles('XAUUSD','5min'),getCandles('XAUUSD','15min'),getPrice('XAUUSD')]);
+  const [r5,r15,px]=await Promise.all([getGoldCandlesResilient('5min'),getGoldCandlesResilient('15min'),getPrice('XAUUSD')]);
   const c5=closed(r5),c15=closed(r15);
   if(c5.length<60||c15.length<60)return{ready:false,status:'BREAKOUT_A_NO_DATA',strategyId:CONFIG.id,strategyLabel:CONFIG.label};
   const side=trend15(c15),a=atr(c5),v=c5.map(x=>n(x.close)).filter(Number.isFinite),e9=ema(v,9),e20=ema(v,20),rr=rsi(v,14),m=momentum(c5,3),rg=recentRange(c5,6),signalClose=n(c5.at(-1).close);
