@@ -1,4 +1,4 @@
-const { scanMarkets } = require('./smartScanner');
+const { scanMarkets } = require('./smartScannerShared');
 const {
   getEligibleAlertUsers,
   canSendAlert,
