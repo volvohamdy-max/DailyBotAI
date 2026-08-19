@@ -41,10 +41,12 @@ if (missingPackages.length > 0) {
   process.exit(1);
 }
 
-// Install provider routing BEFORE src/app.js loads scheduler/scanners/strategies.
-// Dukascopy public datafeed is the primary candle source for FX/XAUUSD.
-// Existing providers remain as automatic fallbacks only.
-require('./src/services/installYahooForexFallback');
+// Stable candle routing is installed before src/app.js loads any strategy:
+//   FX:     Dukascopy -> TwelveData
+//   XAUUSD: Dukascopy -> SiftingIO -> TwelveData -> Massive (optional)
+// BTCUSD stays on the native Binance path.
+// Yahoo and AlphaVantage are intentionally not installed as intraday candle
+// fallbacks because their current access paths are rate-limited/premium.
 require('./src/services/installGoldRequestQueue');
 require('./src/services/installMassiveMarketFallback');
 require('./src/services/installDukascopyFallback');
