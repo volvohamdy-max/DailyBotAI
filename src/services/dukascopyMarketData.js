@@ -163,7 +163,8 @@ async function fetchDatafeed(pair, interval) {
   if (interval === '5min') {
     const minuteRows = await fetchSource(pair, 'm1', 9 * 60 * 60 * 1000);
     if (minuteRows.length >= 150) return aggregate(minuteRows, 5).slice(-100);
-    const direct = await fetchSource(pair, 'm5', 12 * 60 * 60 * 1000);
+    console.log(`🟢 Dukascopy direct m5 fallback: ${pair}`);
+    const direct = await fetchSource(pair, 'm5', 2 * 24 * 60 * 60 * 1000);
     return direct.slice(-100);
   }
 
@@ -171,14 +172,15 @@ async function fetchDatafeed(pair, interval) {
     const minuteRows = await fetchSource(pair, 'm1', 16 * 60 * 60 * 1000);
     if (minuteRows.length >= 300) return aggregate(minuteRows, 15).slice(-100);
     console.log(`🟢 Dukascopy direct m15 fallback: ${pair}`);
-    const direct = await fetchSource(pair, 'm15', 30 * 60 * 60 * 1000);
+    // Use a full trading week so sparse/partial sessions still provide >=50 bars.
+    const direct = await fetchSource(pair, 'm15', 7 * 24 * 60 * 60 * 1000);
     return direct.slice(-100);
   }
 
   if (interval === '1h') {
     const rows15 = await fetchSource(pair, 'm15', 5 * 24 * 60 * 60 * 1000);
     if (rows15.length >= 80) return aggregate(rows15, 60).slice(-100);
-    const direct = await fetchSource(pair, 'h1', 7 * 24 * 60 * 60 * 1000);
+    const direct = await fetchSource(pair, 'h1', 10 * 24 * 60 * 60 * 1000);
     return direct.slice(-100);
   }
 
