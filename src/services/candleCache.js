@@ -1,26 +1,24 @@
 const cache = {};
 
-// Cache TTL حسب الفريم
+// Cache TTL حسب الفريم.
+// Strategies use CLOSED candles, while live entry uses the dedicated price feed.
+// Keep candles long enough to avoid re-requesting the same bar every scan.
 function getTTL(key) {
   const value = String(key || '').toLowerCase();
 
-  // Gold 5M scalping needs very fresh data
-  if (
-    value.includes('xauusd') &&
-    value.includes('5min')
-  ) {
-    return 60 * 1000; // 60 seconds
+  if (value.includes('xauusd') && value.includes('5min')) {
+    return 4 * 60 * 1000; // 4 minutes: same closed 5M bar across minute scans
   }
 
-  // 15M trend doesn't need refreshing every few seconds
-  if (
-    value.includes('xauusd') &&
-    value.includes('15min')
-  ) {
-    return 3 * 60 * 1000; // 3 minutes
+  if (value.includes('xauusd') && value.includes('15min')) {
+    return 10 * 60 * 1000; // 10 minutes
   }
 
-  return 5 * 60 * 1000; // 5 minutes
+  if (value.includes('xauusd') && value.includes('1h')) {
+    return 30 * 60 * 1000; // 30 minutes
+  }
+
+  return 5 * 60 * 1000;
 }
 
 function getCache(pair) {
