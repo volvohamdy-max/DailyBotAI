@@ -15,16 +15,6 @@ function maxAge(interval) {
   return 30 * 60 * 1000;
 }
 
-function timeframe(interval) {
-  return ({
-    '1min': 'm1',
-    '5min': 'm5',
-    '15min': 'm15',
-    '30min': 'm30',
-    '1h': 'h1'
-  })[interval] || null;
-}
-
 function normalize(rows) {
   if (!Array.isArray(rows)) return [];
 
@@ -55,24 +45,65 @@ function normalize(rows) {
       Number.isFinite(c.open) && Number.isFinite(c.high) &&
       Number.isFinite(c.low) && Number.isFinite(c.close)
     )
-    .sort((a, b) => a.timestamp - b.timestamp)
-    .slice(-100);
+    .sort((a, b) => a.timestamp - b.timestamp);
 }
 
-async function fetchDatafeed(pair, interval) {
-  let getHistoricalRates;
+function aggregate(rows, minutes) {
+  const bucketMs = minutes * 60 * 1000;
+  const buckets = new Map();
+
+  for (const c of rows) {
+    const ts = Math.floor(c.timestamp / bucketMs) * bucketMs;
+    let b = buckets.get(ts);
+
+    if (!b) {
+      b = {
+        timestamp: ts,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close,
+        volume: 0,
+        hasVolume: false
+      };
+      buckets.set(ts, b);
+    } else {
+      b.high = Math.max(b.high, c.high);
+      b.low = Math.min(b.low, c.low);
+      b.close = c.close;
+    }
+
+    if (Number.isFinite(Number(c.volume)) && Number(c.volume) > 0) {
+      b.volume += Number(c.volume);
+      b.hasVolume = true;
+    }
+  }
+
+  return [...buckets.values()]
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .map(b => ({
+      timestamp: b.timestamp,
+      open: b.open,
+      high: b.high,
+      low: b.low,
+      close: b.close,
+      volume: b.hasVolume ? b.volume : null
+    }));
+}
+
+async function loadLibrary() {
   try {
-    ({ getHistoricalRates } = require('dukascopy-node'));
+    const lib = require('dukascopy-node');
+    const fn = lib.getHistoricalRates || lib.getHistoricRates;
+    if (typeof fn !== 'function') throw new Error('getHistoricalRates missing');
+    return fn;
   } catch (error) {
     throw new Error('DUKASCOPY_NODE_NOT_INSTALLED');
   }
+}
 
-  const tf = timeframe(interval);
-  if (!tf) throw new Error(`Unsupported Dukascopy interval: ${interval}`);
-
-  const lookbackMs = interval === '1h'
-    ? 8 * 24 * 60 * 60 * 1000
-    : 3 * 24 * 60 * 60 * 1000;
+async function fetchSource(pair, sourceTimeframe, lookbackMs) {
+  const getHistoricalRates = await loadLibrary();
 
   const rows = await getHistoricalRates({
     instrument: String(pair || '').toLowerCase(),
@@ -80,17 +111,43 @@ async function fetchDatafeed(pair, interval) {
       from: new Date(Date.now() - lookbackMs),
       to: new Date()
     },
-    timeframe: tf,
+    timeframe: sourceTimeframe,
     format: 'json',
     priceType: 'bid',
     volumes: true,
-    batchSize: 2,
-    pauseBetweenBatchesMs: 1200,
+    batchSize: 1,
+    pauseBetweenBatchesMs: 800,
     useCache: true,
-    cacheFolderPath: './data/dukascopy-cache'
+    cacheFolderPath: './data/dukascopy-cache',
+    retryCount: 2,
+    pauseBetweenRetriesMs: 1000,
+    retryOnEmpty: true
   });
 
   return normalize(rows);
+}
+
+async function fetchDatafeed(pair, interval) {
+  // Build trading timeframes locally from fresher lower-timeframe data.
+  // This avoids stale ready-made 15m/1h bars observed on the live feed.
+  if (interval === '5min' || interval === '15min') {
+    const lookbackMs = interval === '15min'
+      ? 36 * 60 * 60 * 1000
+      : 18 * 60 * 60 * 1000;
+    const minuteRows = await fetchSource(pair, 'm1', lookbackMs);
+    return aggregate(minuteRows, interval === '15min' ? 15 : 5).slice(-100);
+  }
+
+  if (interval === '1h') {
+    const rows15 = await fetchSource(pair, 'm15', 7 * 24 * 60 * 60 * 1000);
+    return aggregate(rows15, 60).slice(-100);
+  }
+
+  if (interval === '1min') {
+    return (await fetchSource(pair, 'm1', 8 * 60 * 60 * 1000)).slice(-100);
+  }
+
+  throw new Error(`Unsupported Dukascopy interval: ${interval}`);
 }
 
 async function getDukascopyCandles(pair, interval = '15min') {
@@ -124,7 +181,7 @@ async function getDukascopyCandles(pair, interval = '15min') {
     }
 
     candleCache.set(key, { candles, time: Date.now() });
-    console.log(`✅ DUKASCOPY DATAFEED ${symbol} ${interval}: ${candles.length} candles`);
+    console.log(`✅ DUKASCOPY DATAFEED ${symbol} ${interval}: ${candles.length} candles | age=${Math.round(ageMs / 60000)}m`);
     return candles;
   })();
 
