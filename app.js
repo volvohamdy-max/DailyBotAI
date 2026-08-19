@@ -42,5 +42,11 @@ if (missingPackages.length > 0) {
   process.exit(1);
 }
 
+// Install provider fallbacks BEFORE src/app.js loads scheduler/scanners/strategies.
+// This ensures modules that destructure marketService functions receive the
+// wrapped versions from the first require, without changing trading logic.
+require('./src/services/installMassiveMarketFallback');
+require('./src/services/installDukascopyFallback');
+
 console.log('Loading Telegram Forex AI bot source...');
 require(appPath);
