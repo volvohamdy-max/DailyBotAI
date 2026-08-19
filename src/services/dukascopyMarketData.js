@@ -137,7 +137,7 @@ function enqueueDatafeedJob(label, job) {
   return promise;
 }
 
-async function fetchSource(pair, sourceTimeframe, lookbackMs) {
+async function fetchSource(pair, sourceTimeframe, lookbackMs, useCache = true) {
   const getHistoricalRates = await loadLibrary();
   const rows = await getHistoricalRates({
     instrument: String(pair || '').toLowerCase(),
@@ -151,7 +151,7 @@ async function fetchSource(pair, sourceTimeframe, lookbackMs) {
     volumes: true,
     batchSize: 1,
     pauseBetweenBatchesMs: 1600,
-    useCache: true,
+    useCache,
     cacheFolderPath: './data/dukascopy-cache',
     retryCount: 0,
     retryOnEmpty: false
@@ -159,33 +159,33 @@ async function fetchSource(pair, sourceTimeframe, lookbackMs) {
   return normalize(rows);
 }
 
-async function fetchDatafeed(pair, interval) {
+async function fetchDatafeed(pair, interval, useCache = true) {
   if (interval === '5min') {
-    const minuteRows = await fetchSource(pair, 'm1', 9 * 60 * 60 * 1000);
+    const minuteRows = await fetchSource(pair, 'm1', 24 * 60 * 60 * 1000, useCache);
     if (minuteRows.length >= 150) return aggregate(minuteRows, 5).slice(-100);
-    console.log(`🟢 Dukascopy direct m5 fallback: ${pair}`);
-    const direct = await fetchSource(pair, 'm5', 2 * 24 * 60 * 60 * 1000);
+    console.log(`🟢 Dukascopy direct m5 fallback: ${pair}${useCache ? '' : ' | fresh'}`);
+    const direct = await fetchSource(pair, 'm5', 2 * 24 * 60 * 60 * 1000, useCache);
     return direct.slice(-100);
   }
 
   if (interval === '15min') {
-    const minuteRows = await fetchSource(pair, 'm1', 16 * 60 * 60 * 1000);
-    if (minuteRows.length >= 300) return aggregate(minuteRows, 15).slice(-100);
-    console.log(`🟢 Dukascopy direct m15 fallback: ${pair}`);
-    // Use a full trading week so sparse/partial sessions still provide >=50 bars.
-    const direct = await fetchSource(pair, 'm15', 7 * 24 * 60 * 60 * 1000);
+    const minuteRows = await fetchSource(pair, 'm1', 3 * 24 * 60 * 60 * 1000, useCache);
+    const aggregated = aggregate(minuteRows, 15).slice(-100);
+    if (aggregated.length >= 50) return aggregated;
+    console.log(`🟢 Dukascopy direct m15 fallback: ${pair}${useCache ? '' : ' | fresh'}`);
+    const direct = await fetchSource(pair, 'm15', 7 * 24 * 60 * 60 * 1000, useCache);
     return direct.slice(-100);
   }
 
   if (interval === '1h') {
-    const rows15 = await fetchSource(pair, 'm15', 5 * 24 * 60 * 60 * 1000);
+    const rows15 = await fetchSource(pair, 'm15', 7 * 24 * 60 * 60 * 1000, useCache);
     if (rows15.length >= 80) return aggregate(rows15, 60).slice(-100);
-    const direct = await fetchSource(pair, 'h1', 10 * 24 * 60 * 60 * 1000);
+    const direct = await fetchSource(pair, 'h1', 10 * 24 * 60 * 60 * 1000, useCache);
     return direct.slice(-100);
   }
 
   if (interval === '1min') {
-    return (await fetchSource(pair, 'm1', 3 * 60 * 60 * 1000)).slice(-100);
+    return (await fetchSource(pair, 'm1', 6 * 60 * 60 * 1000, useCache)).slice(-100);
   }
 
   throw new Error(`Unsupported Dukascopy interval: ${interval}`);
@@ -224,8 +224,19 @@ async function getDukascopyCandles(pair, interval = '15min') {
 
   const promise = enqueueDatafeedJob(key, async () => {
     try {
-      const candles = await fetchDatafeed(symbol, interval);
-      const ageMs = validateCandles(symbol, interval, candles);
+      let candles = await fetchDatafeed(symbol, interval, true);
+      let ageMs;
+      try {
+        ageMs = validateCandles(symbol, interval, candles);
+      } catch (firstError) {
+        if (/STALE_DUKASCOPY_DATAFEED|Insufficient Dukascopy/.test(String(firstError.message || ''))) {
+          console.log(`🔄 Dukascopy fresh retry without cache: ${symbol} ${interval} | ${firstError.message}`);
+          candles = await fetchDatafeed(symbol, interval, false);
+          ageMs = validateCandles(symbol, interval, candles);
+        } else {
+          throw firstError;
+        }
+      }
       candleCache.set(key, { candles, time: Date.now() });
       console.log(`✅ DUKASCOPY DATAFEED ${symbol} ${interval}: ${candles.length} candles | age=${Math.round(ageMs / 60000)}m`);
       return candles;
