@@ -6,8 +6,8 @@ const inFlight = new Map();
 let queueTail = Promise.resolve();
 let lastJobFinishedAt = 0;
 let cooldownUntil = 0;
-const GLOBAL_JOB_GAP_MS = Number(process.env.DUKASCOPY_JOB_GAP_MS) || 2500;
-const RATE_LIMIT_COOLDOWN_MS = Number(process.env.DUKASCOPY_429_COOLDOWN_MS) || 90 * 1000;
+const GLOBAL_JOB_GAP_MS = Number(process.env.DUKASCOPY_JOB_GAP_MS) || 10000;
+const RATE_LIMIT_COOLDOWN_MS = Number(process.env.DUKASCOPY_429_COOLDOWN_MS) || 3 * 60 * 1000;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -15,8 +15,8 @@ function sleep(ms) {
 
 function ttl(interval) {
   if (interval === '5min') return 4 * 60 * 1000;
-  if (interval === '15min') return 10 * 60 * 1000;
-  if (interval === '1h') return 30 * 60 * 1000;
+  if (interval === '15min') return 14 * 60 * 1000;
+  if (interval === '1h') return 45 * 60 * 1000;
   return 5 * 60 * 1000;
 }
 
@@ -171,11 +171,10 @@ async function fetchSource(pair, sourceTimeframe, lookbackMs) {
     priceType: 'bid',
     volumes: true,
     batchSize: 1,
-    pauseBetweenBatchesMs: 1400,
+    pauseBetweenBatchesMs: 2200,
     useCache: true,
     cacheFolderPath: './data/dukascopy-cache',
-    retryCount: 1,
-    pauseBetweenRetriesMs: 2500,
+    retryCount: 0,
     retryOnEmpty: true
   });
 
