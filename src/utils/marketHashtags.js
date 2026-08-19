@@ -43,10 +43,11 @@ const RULES = [
   [/(?:الدولار الأمريكي|الدولار الامريكي)/g, '#الدولار_الأمريكي'],
   [/الدولار/g, '#الدولار'],
   [/اليورو/g, '#اليورو'],
-  [/(?:الجنيه الإسترليني|الجنيه الاسترليني|الإسترليني|الاسترليني)/g, '#الجنيه_الإسترليني'],
-  [/(?:الين الياباني)/g, '#الين_الياباني'],
+  [/(?:الجنيه الإسترليني|الجنيه الاسترليني)/g, '#الجنيه_الإسترليني'],
+  [/(?:الإسترليني|الاسترليني)/g, '#الإسترليني'],
+  [/الين الياباني/g, '#الين_الياباني'],
   [/الين/g, '#الين'],
-  [/(?:الفرنك السويسري)/g, '#الفرنك_السويسري'],
+  [/الفرنك السويسري/g, '#الفرنك_السويسري'],
   [/الفرنك/g, '#الفرنك'],
   [/الذهب/g, '#الذهب'],
   [/وول ستريت/g, '#وول_ستريت'],
@@ -54,18 +55,26 @@ const RULES = [
   [/ناسداك/g, '#ناسداك']
 ];
 
+function isInsideExistingHashtag(whole, offset) {
+  const before = whole.slice(0, offset);
+  const tokenStart = Math.max(
+    before.lastIndexOf(' '),
+    before.lastIndexOf('\n'),
+    before.lastIndexOf('\t')
+  ) + 1;
+  return before.slice(tokenStart).includes('#');
+}
+
 function addMarketHashtags(text) {
   let out = String(text ?? '');
 
   for (const [pattern, replacement] of RULES) {
-    // Do not double-tag an already tagged token.
     out = out.replace(pattern, (match, offset, whole) => {
-      if (offset > 0 && whole[offset - 1] === '#') return match;
+      if (isInsideExistingHashtag(whole, offset)) return match;
       return replacement;
     });
   }
 
-  // Safety cleanup if overlapping Arabic/English rules ever produce ##.
   return out.replace(/#{2,}/g, '#');
 }
 
