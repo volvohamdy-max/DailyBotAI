@@ -1,16 +1,21 @@
 const axios = require('axios');
 const { getCandles } = require('./marketService');
+const {
+  getMassiveGoldCandles,
+  isMassiveConfigured
+} = require('./massiveMarketData');
 
 const recoveryCache = new Map();
 const inFlight = new Map();
-const TIMEOUT_MS = Number(process.env.MARKET_PROVIDER_TIMEOUT_MS) || 10000;
 
-function recoveryTtl(interval) {
-  if (interval === '5min') return Number(process.env.GOLD_CANDLE_RECOVERY_CACHE_5M_MS) || 4 * 60 * 1000;
-  if (interval === '15min') return Number(process.env.GOLD_CANDLE_RECOVERY_CACHE_15M_MS) || 10 * 60 * 1000;
-  if (interval === '1h') return Number(process.env.GOLD_CANDLE_RECOVERY_CACHE_1H_MS) || 30 * 60 * 1000;
+function recoveryCacheMs(interval) {
+  if (interval === '5min') return Number(process.env.GOLD_CANDLE_RECOVERY_5M_MS) || 4 * 60 * 1000;
+  if (interval === '15min') return Number(process.env.GOLD_CANDLE_RECOVERY_15M_MS) || 10 * 60 * 1000;
+  if (interval === '1h') return Number(process.env.GOLD_CANDLE_RECOVERY_1H_MS) || 30 * 60 * 1000;
   return Number(process.env.GOLD_CANDLE_RECOVERY_CACHE_MS) || 5 * 60 * 1000;
 }
+
+const TIMEOUT_MS = Number(process.env.MARKET_PROVIDER_TIMEOUT_MS) || 10000;
 
 function intervalMap(interval) {
   return ({
@@ -27,10 +32,6 @@ function usableVolumeCount(candles, lookback = 24) {
     const v = Number(c?.volume ?? c?.v ?? null);
     return count + (Number.isFinite(v) && v > 0 ? 1 : 0);
   }, 0);
-}
-
-function is429(error) {
-  return Number(error?.response?.status) === 429 || /\b429\b/.test(String(error?.message || ''));
 }
 
 async function directSiftingGold(interval) {
@@ -113,27 +114,39 @@ async function directSiftingGold(interval) {
   return candles;
 }
 
-async function getGoldCandlesResilient(interval) {
-  const key = `XAUUSD:${interval}`;
+async function tryMassive(interval, primaryError) {
+  if (!isMassiveConfigured()) return null;
 
   try {
-    const candles = await getCandles('XAUUSD', interval);
-    recoveryCache.set(key, { candles, time: Date.now() });
-    return candles;
-  } catch (primaryError) {
-    const cached = recoveryCache.get(key);
-    const ttl = recoveryTtl(interval);
+    console.log(`🟣 MASSIVE FALLBACK: XAUUSD:${interval} | primary=${primaryError.message}`);
+    const candles = await getMassiveGoldCandles(interval);
 
-    if (cached && Date.now() - cached.time <= ttl) {
-      console.log(`🛟 GOLD CANDLE RECOVERY CACHE: ${key}`);
-      return cached.candles;
+    if (interval === '5min') {
+      const volumeCount = usableVolumeCount(candles, 24);
+      if (volumeCount < 12) {
+        throw new Error(`Massive missing usable volume: ${volumeCount}/24`);
+      }
     }
 
-    // Do NOT immediately hit Sifting again after it just returned 429.
-    // That only extends the rate-limit storm. Let the provider circuit cool down.
-    if (is429(primaryError)) {
-      console.log(`🧊 GOLD CANDLE RECOVERY deferred after 429: ${key}`);
-      throw primaryError;
+    console.log(`✅ MASSIVE CANDLES OK: XAUUSD:${interval} | ${candles.length} candles`);
+    return candles;
+  } catch (error) {
+    console.log(`⚠️ Massive fallback failed XAUUSD ${interval}: ${error.response?.status || error.message}`);
+    return null;
+  }
+}
+
+async function getGoldCandlesResilient(interval) {
+  try {
+    return await getCandles('XAUUSD', interval);
+  } catch (primaryError) {
+    const key = `XAUUSD:${interval}`;
+    const cached = recoveryCache.get(key);
+    const ttl = recoveryCacheMs(interval);
+
+    if (cached && Date.now() - cached.time <= ttl) {
+      console.log(`🛟 GOLD CANDLE RECOVERY CACHE: ${key} | source=${cached.source}`);
+      return cached.candles;
     }
 
     if (inFlight.has(key)) {
@@ -142,9 +155,20 @@ async function getGoldCandlesResilient(interval) {
     }
 
     const promise = (async () => {
+      const massive = await tryMassive(interval, primaryError);
+      if (massive) {
+        recoveryCache.set(key, { candles: massive, time: Date.now(), source: 'Massive' });
+        return massive;
+      }
+
+      const status = primaryError?.response?.status;
+      if (status === 429 || /429/.test(String(primaryError?.message || ''))) {
+        throw new Error(`Gold candle providers rate-limited for ${key}; Massive unavailable/failed`);
+      }
+
       console.log(`🛟 GOLD CANDLE RECOVERY: direct Sifting ${key} | primary=${primaryError.message}`);
       const candles = await directSiftingGold(interval);
-      recoveryCache.set(key, { candles, time: Date.now() });
+      recoveryCache.set(key, { candles, time: Date.now(), source: 'SiftingDirect' });
       console.log(`✅ GOLD CANDLE RECOVERY OK: ${key} | ${candles.length} candles`);
       return candles;
     })();
