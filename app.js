@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const appPath = path.join(__dirname, 'src', 'app.js');
-const requiredPackages = ['telegraf', 'sql.js', 'dotenv', 'axios', 'node-cron'];
+const requiredPackages = ['telegraf', 'sql.js', 'dotenv', 'axios', 'node-cron', 'dukascopy-node'];
 
 function packageExists(packageName) {
   try {
@@ -36,15 +36,14 @@ if (missingPackages.length > 0) {
   console.error(`   ${missingPackages.join(', ')}`);
   console.error('');
   console.error('✅ الحل على Termux من داخل مجلد المشروع:');
-  console.error('   pkg install nodejs python make clang');
   console.error('   npm install');
   console.error('   npm start');
   process.exit(1);
 }
 
 // Install provider routing BEFORE src/app.js loads scheduler/scanners/strategies.
-// Yahoo is used for no-key forex candles; XAU calls are serialized to avoid
-// burst-rate 429s. Massive and Dukascopy remain optional fallbacks.
+// Dukascopy public datafeed is the primary candle source for FX/XAUUSD.
+// Existing providers remain as automatic fallbacks only.
 require('./src/services/installYahooForexFallback');
 require('./src/services/installGoldRequestQueue');
 require('./src/services/installMassiveMarketFallback');
