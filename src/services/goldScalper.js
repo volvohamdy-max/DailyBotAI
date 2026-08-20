@@ -2,8 +2,9 @@ require('./installMassiveMarketFallback');
 
 const newYorkStrategy = require('./scalpStrategies/newYorkStrategy');
 const aggressiveBreakoutA = require('./scalpStrategies/aggressiveBreakoutA');
+const proStrategy = require('./scalpStrategies/proStrategy');
 
-const STRATEGIES = [newYorkStrategy, aggressiveBreakoutA];
+const STRATEGIES = [newYorkStrategy, aggressiveBreakoutA, proStrategy];
 
 async function scanGoldScalp() {
   const waits = [];
