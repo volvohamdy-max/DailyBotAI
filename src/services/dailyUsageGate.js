@@ -12,6 +12,13 @@ function ensureTable() {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (telegram_id, feature, usage_date)
     );
+
+    CREATE TABLE IF NOT EXISTS one_time_feature_usage (
+      telegram_id TEXT NOT NULL,
+      feature TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (telegram_id, feature)
+    );
   `);
 }
 
@@ -189,19 +196,6 @@ function featureArabic(feature) {
 function consumeFeature(userId, feature) {
   ensureTable();
 
-  if (
-    !getBoolSetting(
-      'free_daily_limit_enabled',
-      false
-    )
-  ) {
-    return {
-      allowed: true,
-      unlimited: true,
-      reason: 'LIMIT_DISABLED'
-    };
-  }
-
   if (isAdmin(userId)) {
     return {
       allowed: true,
@@ -215,6 +209,47 @@ function consumeFeature(userId, feature) {
       allowed: true,
       unlimited: true,
       reason: 'VIP'
+    };
+  }
+
+  // Market Map is a one-time lifetime preview for FREE users.
+  // It is intentionally independent from the daily free-limit switch.
+  if (String(feature) === 'market_map') {
+    const result = db.prepare(`
+      INSERT OR IGNORE INTO one_time_feature_usage
+        (telegram_id, feature)
+      VALUES (?, ?)
+    `).run(
+      String(userId),
+      'market_map'
+    );
+
+    if (Number(result.changes) === 1) {
+      return {
+        allowed: true,
+        unlimited: false,
+        firstUse: true,
+        oneTime: true
+      };
+    }
+
+    return {
+      allowed: false,
+      unlimited: false,
+      reason: 'ONE_TIME_LIMIT'
+    };
+  }
+
+  if (
+    !getBoolSetting(
+      'free_daily_limit_enabled',
+      false
+    )
+  ) {
+    return {
+      allowed: true,
+      unlimited: true,
+      reason: 'LIMIT_DISABLED'
     };
   }
 
@@ -249,26 +284,19 @@ function limitMessage(feature, en = false) {
   const name =
     featureArabic(feature);
 
-  if (en) {
-    return `🔒 Free daily limit reached
+  if (String(feature) === 'market_map') {
+    if (en) {
+      return `🔒 Free Market Map preview used\n\nYou have already used your one free ${name} preview.\n\n💎 VIP members have unlimited access to Market Map and all trading and analysis tools.\n\nUpgrade to VIP to use Market Map again.`;
+    }
 
-You already used ${name} today.
-
-💎 VIP members have unlimited access to all trading and analysis tools.
-
-Upgrade to VIP to continue using this feature today.`;
+    return `🔒 تم استخدام تجربة خريطة السوق المجانية\n\nلقد استخدمت ${name} المجانية مرة واحدة بالفعل.\n\n💎 مشتركو VIP يمكنهم استخدام خريطة السوق وجميع أدوات التداول والتحليل بدون حدود.\n\nاشترك VIP لاستخدام خريطة السوق مرة أخرى.`;
   }
 
-  return `🔒 تم استهلاك الاستخدام المجاني اليومي
+  if (en) {
+    return `🔒 Free daily limit reached\n\nYou already used ${name} today.\n\n💎 VIP members have unlimited access to all trading and analysis tools.\n\nUpgrade to VIP to continue using this feature today.`;
+  }
 
-لقد استخدمت:
-${name}
-
-مرة بالفعل اليوم.
-
-💎 مشتركو VIP يمكنهم استخدام جميع أدوات التداول والتحليل بدون حدود.
-
-اشترك VIP لاستخدام الميزة مرة أخرى اليوم.`;
+  return `🔒 تم استهلاك الاستخدام المجاني اليومي\n\nلقد استخدمت:\n${name}\n\nمرة بالفعل اليوم.\n\n💎 مشتركو VIP يمكنهم استخدام جميع أدوات التداول والتحليل بدون حدود.\n\nاشترك VIP لاستخدام الميزة مرة أخرى اليوم.`;
 }
 
 function dailyUsageMiddleware() {
