@@ -3,6 +3,9 @@ const { getCandles } = require('./marketService');
 const { calculateTradeLevels } = require('./tradeEngine');
 
 const PAIRS = ['XAUUSD','BTCUSD','EURUSD','GBPUSD','USDJPY','EURJPY','GBPJPY','CHFJPY'];
+const TREND_CACHE_MS = Math.max(15000, Number(process.env.TREND_ANALYSIS_CACHE_MS) || 4 * 60 * 1000);
+const trendCache = new Map();
+const trendInFlight = new Map();
 
 function clamp(n,min=0,max=100){const v=Number(n);return Number.isFinite(v)?Math.max(min,Math.min(max,v)):min;}
 
@@ -71,7 +74,7 @@ function blockers(e){
   return out;
 }
 
-async function analyzeTrend(pair){
+async function analyzeTrendFresh(pair){
   const a=await analyzePair(pair);
   if(!a?.indicators)return {pair,direction:'WAIT',status:'NO_DATA',score:0,blockers:['DATA']};
   const i=a.indicators,d=directionOf(i),e=evidence(i,a,d),s=score(i,a,d,e),adx=Number(i?.adx);
@@ -89,11 +92,30 @@ async function analyzeTrend(pair){
   };
 }
 
+async function analyzeTrend(pair){
+  pair=String(pair||'').toUpperCase();
+  const cached=trendCache.get(pair);
+  if(cached && Date.now()-cached.at<=TREND_CACHE_MS){
+    return cached.value;
+  }
+  if(trendInFlight.has(pair)) return trendInFlight.get(pair);
+
+  const promise=(async()=>{
+    const value=await analyzeTrendFresh(pair);
+    trendCache.set(pair,{at:Date.now(),value});
+    return value;
+  })();
+  trendInFlight.set(pair,promise);
+  try{return await promise;}finally{trendInFlight.delete(pair);}
+}
+
 async function scanTrends(){
   const out=[];
   for(const p of PAIRS){try{out.push(await analyzeTrend(p));}catch(e){out.push({pair:p,direction:'WAIT',status:'ERROR',score:0,blockers:['ERROR']});}}
   const rank={ENTRY_READY:5,WAIT_PULLBACK:4,TREND_FOUND:3,NO_TREND:2,NO_DATA:1,ERROR:0};
   return out.sort((a,b)=>(rank[b.status]-rank[a.status])||(b.score-a.score));
 }
+
+console.log(`🧠 Trend analysis shared cache READY | ttl=${Math.round(TREND_CACHE_MS/1000)}s`);
 
 module.exports={PAIRS,analyzeTrend,scanTrends};
