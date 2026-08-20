@@ -14,9 +14,9 @@ const { monitorShadowTrades } = require('./shadowTradeEngine');
 const { runPersonalizedAlerts } = require('./personalizedAlerts');
 
 const {
-    checkEconomicNews,
-    checkUpcomingNews
+    checkEconomicNews
 } = require('./newsService');
+const { checkUpcomingNewsReliable } = require('./reliableUpcomingNews');
 
 let scanRunning = false;
 let newsRunning = false;
@@ -48,7 +48,7 @@ function startScheduler(bot) {
         try {
 
             await checkEconomicNews(bot);
-            await checkUpcomingNews(bot);
+            await checkUpcomingNewsReliable(bot);
 
             console.log("✅ News check finished");
 
