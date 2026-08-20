@@ -2,6 +2,7 @@ const { Markup } = require('telegraf');
 const { findUser } = require('../database/users');
 const { mainKeyboard } = require('../keyboards/main');
 const { buildMarketMap } = require('../services/marketMap');
+const { consumeFeature, limitMessage } = require('../services/dailyUsageGate');
 
 function en(ctx) {
   return findUser(ctx.from.id)?.language === 'en';
@@ -153,6 +154,35 @@ function marketButtons(english) {
   ]);
 }
 
+function vipButton(english) {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback(
+        english ? '💎 Upgrade to VIP' : '💎 اشترك VIP',
+        'vip_monthly'
+      )
+    ]
+  ]);
+}
+
+async function denyMarketMap(ctx, english) {
+  return ctx.reply(
+    limitMessage('market_map', english),
+    vipButton(english)
+  );
+}
+
+function consumeMarketMapAccess(ctx) {
+  if (ctx.state?.dailyUsageChecked) {
+    return { allowed: true, alreadyChecked: true };
+  }
+
+  if (!ctx.state) ctx.state = {};
+  ctx.state.dailyUsageChecked = true;
+
+  return consumeFeature(ctx.from?.id, 'market_map');
+}
+
 const cache = new Map();
 
 function cacheData(userId, data) {
@@ -172,6 +202,11 @@ function getCached(userId) {
 function registerMarketMap(bot) {
   bot.hears(['🧭 خريطة السوق', '🧭 Market Map'], async (ctx) => {
     const english = en(ctx);
+    const access = consumeMarketMapAccess(ctx);
+
+    if (!access.allowed) {
+      return denyMarketMap(ctx, english);
+    }
 
     await ctx.reply(
       english
@@ -203,7 +238,15 @@ function registerMarketMap(bot) {
     const english = en(ctx);
 
     let data = getCached(ctx.from.id);
+
+    // Free users may inspect the cached result from their one preview,
+    // but rebuilding it later requires VIP/Admin access.
     if (!data) {
+      const access = consumeFeature(ctx.from?.id, 'market_map');
+      if (!access.allowed) {
+        return denyMarketMap(ctx, english);
+      }
+
       data = await buildMarketMap();
       cacheData(ctx.from.id, data);
     }
@@ -217,6 +260,13 @@ function registerMarketMap(bot) {
   bot.action('market_map_refresh', async (ctx) => {
     await ctx.answerCbQuery();
     const english = en(ctx);
+    const access = consumeFeature(ctx.from?.id, 'market_map');
+
+    // A free user's first open already consumed the one-time preview,
+    // so Refresh is naturally VIP/Admin-only after that first view.
+    if (!access.allowed) {
+      return denyMarketMap(ctx, english);
+    }
 
     const data = await buildMarketMap();
     cacheData(ctx.from.id, data);
