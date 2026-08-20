@@ -101,6 +101,25 @@ function realizedR(trade, exitPrice, outcome) {
   return Number((reward / risk).toFixed(3));
 }
 
+function directionalR(trade, exitPrice) {
+  const risk = riskDistance(trade);
+  if (!risk) return null;
+
+  const entry = Number(trade.entry);
+  const exit = Number(exitPrice);
+  const action = String(trade.action || '').toUpperCase();
+
+  if (!Number.isFinite(entry) || !Number.isFinite(exit)) return null;
+  if (action !== 'BUY' && action !== 'SELL') return null;
+
+  const move = action === 'BUY' ? exit - entry : entry - exit;
+  return Number((move / risk).toFixed(3));
+}
+
+function isProStrategyTrade(trade) {
+  return String(trade?.telegram_id || '').toUpperCase() === 'VIP_SCALP_PRO_STRATEGY';
+}
+
 function ensureTradeTracked(trade) {
   ensureTable();
 
@@ -131,7 +150,41 @@ function ensureTradeTracked(trade) {
   );
 }
 
+function recordProRsiWin(trade, price) {
+  ensureTradeTracked(trade);
+
+  const exitPrice = Number(price);
+  const r = directionalR(trade, exitPrice);
+  const now = nowSql();
+
+  db.prepare(`
+    UPDATE trade_performance
+    SET
+      tp1_hit = 0,
+      tp2_hit = 0,
+      sl_hit = 0,
+      closed_at = ?,
+      exit_price = ?,
+      outcome = 'PRO_RSI_WIN',
+      realized_r = ?,
+      updated_at = ?
+    WHERE trade_id = ?
+  `).run(
+    now,
+    exitPrice,
+    r,
+    now,
+    Number(trade.id)
+  );
+}
+
 function recordTp1(trade, price) {
+  // Pro Strategy has no price TP1. Its profitable exit is the live RSI exit.
+  // Store the real exit price/outcome instead of the far-away pipeline placeholder.
+  if (isProStrategyTrade(trade)) {
+    return recordProRsiWin(trade, price);
+  }
+
   ensureTradeTracked(trade);
 
   const exitPrice = Number.isFinite(Number(trade.target1))
@@ -269,6 +322,7 @@ function goldPipsForRow(row) {
   if (row.outcome === 'TP1') return moveTo(row.target1);
   if (row.outcome === 'TP2') return moveTo(row.target2);
   if (row.outcome === 'SL') return moveTo(row.stop_loss);
+  if (row.outcome === 'PRO_RSI_WIN') return moveTo(row.exit_price);
   if (row.outcome === 'BREAKEVEN') return 0;
 
   return null;
@@ -299,6 +353,7 @@ function getStats(days) {
   const sl = rows.filter((x) => Number(x.sl_hit) === 1).length;
   const tp1ThenSl = 0;
   const pureSl = rows.filter((x) => x.outcome === 'SL').length;
+  const proRsiWins = rows.filter((x) => x.outcome === 'PRO_RSI_WIN').length;
 
   const rValues = closed
     .filter((x) => x.realized_r !== null && x.realized_r !== undefined)
@@ -332,6 +387,10 @@ function getStats(days) {
       return Number.isFinite(tp1Target)
         ? Math.abs(tp1Target - entry) / risk
         : null;
+    }
+
+    if (row.outcome === 'PRO_RSI_WIN' && Number.isFinite(Number(row.realized_r))) {
+      return Number(row.realized_r);
     }
 
     return null;
@@ -369,6 +428,9 @@ function getStats(days) {
     const source = String(row.telegram_id || '').toUpperCase();
     if (source === 'VIP_REGIME') return 'REGIME';
     if (source === 'VIP_POWER') return 'POWER';
+    if (source === 'VIP_SCALP_PRO_STRATEGY') return 'PRO_STRATEGY';
+    if (source === 'VIP_SCALP_NEW_YORK') return 'NEW_YORK';
+    if (source === 'VIP_SCALP_AGGRESSIVE_BREAKOUT_A') return 'BREAKOUT_A';
     if (source === 'VIP_SCALP' || source === 'VIP' || source === 'VIP_FREE') return 'SCALP';
     return 'OTHER';
   }
@@ -395,7 +457,15 @@ function getStats(days) {
 
     const key = strategyKey(row);
     if (!byStrategy[key]) {
-      byStrategy[key] = { total: 0, closed: 0, tp1: 0, tp2: 0, sl: 0, netR: 0 };
+      byStrategy[key] = {
+        total: 0,
+        closed: 0,
+        tp1: 0,
+        tp2: 0,
+        sl: 0,
+        proRsiWins: 0,
+        netR: 0
+      };
     }
 
     const st = byStrategy[key];
@@ -404,6 +474,7 @@ function getStats(days) {
     if (Number(row.tp1_hit) === 1) st.tp1 += 1;
     if (Number(row.tp2_hit) === 1) st.tp2 += 1;
     if (Number(row.sl_hit) === 1) st.sl += 1;
+    if (row.outcome === 'PRO_RSI_WIN') st.proRsiWins += 1;
     if (Number.isFinite(Number(row.realized_r))) st.netR += Number(row.realized_r);
   }
 
@@ -418,6 +489,7 @@ function getStats(days) {
     sl,
     pureSl,
     tp1ThenSl,
+    proRsiWins,
     tp1Rate: rows.length ? (tp1 / rows.length) * 100 : 0,
     tp2Rate: rows.length ? (tp2 / rows.length) * 100 : 0,
     slRate: rows.length ? (sl / rows.length) * 100 : 0,
@@ -457,5 +529,6 @@ module.exports = {
   recordTp2,
   recordSl,
   recordBreakeven,
+  recordProRsiWin,
   getStats
 };
