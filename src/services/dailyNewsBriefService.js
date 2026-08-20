@@ -51,11 +51,11 @@ function curatedTitle(title) {
     ['fomc minutes','محضر اجتماع الاحتياطي الفيدرالي'],
     ['fomc statement','بيان الاحتياطي الفيدرالي'],
     ['interest rate decision','قرار سعر الفائدة'],
+    ['producer price index','مؤشر أسعار المنتجين'],
+    ['ppi','مؤشر أسعار المنتجين'],
     ['consumer price index','مؤشر أسعار المستهلكين'],
     ['core cpi','مؤشر أسعار المستهلكين الأساسي'],
     ['cpi','مؤشر أسعار المستهلكين'],
-    ['producer price index','مؤشر أسعار المنتجين'],
-    ['ppi','مؤشر أسعار المنتجين'],
     ['nonfarm payroll','الوظائف غير الزراعية'],
     ['unemployment rate','معدل البطالة'],
     ['jobless claims','طلبات إعانة البطالة'],
@@ -94,14 +94,12 @@ function mark(key) {
   db.prepare('INSERT OR IGNORE INTO news_alerts(news_id,alert_sent) VALUES(?,1)').run(key);
 }
 
-async function sendDailyNewsBrief(bot, { force = false } = {}) {
-  const target = chatId();
-  if (!target) return false;
+function hasValue(v) {
+  return v != null && String(v).trim() !== '' && String(v).trim() !== '-';
+}
 
+async function buildDailyBriefMessage() {
   const day = cairoDateKey();
-  const key = `daily_news_brief_${day}`;
-  if (!force && seen(key)) return false;
-
   const { data, providers } = await getMultiSourceCalendar(true);
   const events = (data || [])
     .filter(e => IMPORTANT.has(String(e.currency || '').toUpperCase()))
@@ -117,17 +115,32 @@ async function sendDailyNewsBrief(bot, { force = false } = {}) {
   let lines = [];
   for (const e of events) {
     const title = await arabicTitle(e.title);
-    const forecast = e.forecast != null && String(e.forecast).trim() ? ` | المتوقع: ${e.forecast}` : '';
-    const previous = e.previous != null && String(e.previous).trim() ? ` | السابق: ${e.previous}` : '';
-    lines.push(`${impactIcon(e)} <b>${timeCairo(e.date)}</b> ${currencyFlag(e.currency)} <b>${title}</b>${forecast}${previous}`);
+    const released = hasValue(e.actual);
+    const status = released ? '✅ صدر' : '⏳ منتظر';
+    const forecast = hasValue(e.forecast) ? ` | المتوقع: ${e.forecast}` : '';
+    const previous = hasValue(e.previous) ? ` | السابق: ${e.previous}` : '';
+    const actual = released ? ` | <b>الفعلي: ${e.actual}</b>` : '';
+    lines.push(`${impactIcon(e)} <b>${timeCairo(e.date)}</b> ${currencyFlag(e.currency)} <b>${title}</b>\n${status}${previous}${forecast}${actual}`);
   }
 
   if (!lines.length) {
     lines = ['🟢 لا توجد أخبار متوسطة أو عالية التأثير مسجلة اليوم على العملات الرئيسية حتى الآن.'];
   }
 
-  const message = `📌 <b>أهم الأخبار الاقتصادية اليوم</b>\n\n📅 ${dateLabel}\n🕗 جميع المواعيد بتوقيت القاهرة\n\n${lines.join('\n\n')}\n\n🔴 تأثير مرتفع   🟠 تأثير متوسط\n⚠️ يفضل الحذر قبل الأخبار القوية وبعدها حتى يهدأ التذبذب.\n\n#EconomicCalendar\n@Forexaitrade_bot`;
+  const message = `📌 <b>أهم الأخبار الاقتصادية اليوم</b>\n\n📅 ${dateLabel}\n🕗 جميع المواعيد بتوقيت القاهرة\n\n${lines.join('\n\n')}\n\n🔴 تأثير مرتفع   🟠 تأثير متوسط\n✅ صدر   ⏳ منتظر\n⚠️ يفضل الحذر قبل الأخبار القوية وبعدها حتى يهدأ التذبذب.\n\n#EconomicCalendar\n@Forexaitrade_bot`;
 
+  return { message, events, providers, day };
+}
+
+async function sendDailyNewsBrief(bot, { force = false } = {}) {
+  const target = chatId();
+  if (!target) return false;
+
+  const day = cairoDateKey();
+  const key = `daily_news_brief_${day}`;
+  if (!force && seen(key)) return false;
+
+  const { message, events, providers } = await buildDailyBriefMessage();
   const sent = await bot.telegram.sendMessage(target, message, {
     parse_mode: 'HTML',
     disable_web_page_preview: true
@@ -145,6 +158,38 @@ async function sendDailyNewsBrief(bot, { force = false } = {}) {
   return true;
 }
 
+async function refreshDailyNewsBrief(bot) {
+  const target = chatId();
+  if (!target) return false;
+
+  try {
+    const chat = await bot.telegram.getChat(target);
+    const pinned = chat?.pinned_message;
+    if (!pinned?.message_id) {
+      console.log('🟡 Daily brief refresh skipped: no pinned message');
+      return false;
+    }
+
+    const currentText = String(pinned.text || pinned.caption || '');
+    if (!currentText.includes('أهم الأخبار الاقتصادية اليوم')) {
+      console.log('🟡 Daily brief refresh skipped: current pin is not daily economic brief');
+      return false;
+    }
+
+    const { message, events } = await buildDailyBriefMessage();
+    await bot.telegram.editMessageText(target, pinned.message_id, undefined, message, {
+      parse_mode: 'HTML',
+      disable_web_page_preview: true
+    });
+    console.log(`🔄 Daily economic brief updated | events=${events.length}`);
+    return true;
+  } catch (error) {
+    if (/message is not modified/i.test(String(error.message || ''))) return true;
+    console.log('⚠️ Daily brief refresh failed:', error.message);
+    return false;
+  }
+}
+
 function startDailyNewsBrief(bot) {
   cron.schedule('0 8 * * *', () => {
     sendDailyNewsBrief(bot).catch(error => console.log('❌ Daily news brief error:', error.message));
@@ -158,7 +203,7 @@ function startDailyNewsBrief(bot) {
     }
   }, 12000);
 
-  console.log('📌 Daily economic brief scheduled 08:00 Africa/Cairo + restart catch-up');
+  console.log('📌 Daily economic brief scheduled 08:00 Africa/Cairo + live pinned updates');
 }
 
-module.exports = { sendDailyNewsBrief, startDailyNewsBrief };
+module.exports = { sendDailyNewsBrief, refreshDailyNewsBrief, startDailyNewsBrief };
