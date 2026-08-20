@@ -58,8 +58,6 @@ function realizedR(trade, exitPrice, outcome) {
     }
 
     const tp1R = Math.abs(tp1 - entry) / risk;
-
-    // 50% secured at TP1, 50% later exited at SL.
     const finalR = (tp1R * 0.5) - 0.5;
 
     return Number(finalR.toFixed(3));
@@ -107,22 +105,29 @@ function ensureTradeTracked(trade) {
 function recordTp1(trade, price) {
   ensureTradeTracked(trade);
 
+  const exitPrice = Number.isFinite(Number(trade.target1))
+    ? Number(trade.target1)
+    : Number(price);
+  const r = realizedR(trade, exitPrice, 'TP1');
+  const now = nowSql();
+
   db.prepare(`
     UPDATE trade_performance
     SET
       tp1_hit = 1,
       tp1_at = COALESCE(tp1_at, ?),
+      closed_at = COALESCE(closed_at, ?),
       exit_price = ?,
-      outcome = CASE
-        WHEN outcome IS NULL OR outcome = '' THEN 'TP1_OPEN'
-        ELSE outcome
-      END,
+      outcome = 'TP1',
+      realized_r = ?,
       updated_at = ?
     WHERE trade_id = ?
   `).run(
-    nowSql(),
-    Number(price),
-    nowSql(),
+    now,
+    now,
+    exitPrice,
+    r,
+    now,
     Number(trade.id)
   );
 }
@@ -185,8 +190,6 @@ function recordSl(trade, price) {
   );
 }
 
-
-
 function recordBreakeven(trade, price) {
   ensureTradeTracked(trade);
 
@@ -243,6 +246,10 @@ function goldPipsForRow(row) {
         : entry - exit;
 
     return move / PIP_SIZE;
+  }
+
+  if (row.outcome === 'TP1') {
+    return moveTo(row.target1);
   }
 
   if (row.outcome === 'TP2') {
@@ -361,7 +368,6 @@ function getStats(days) {
   const reachedR = reachedRValues.length
     ? reachedRValues.reduce((a, b) => a + b, 0)
     : null;
-
 
   const pipResults = closed
     .map((row) => {
