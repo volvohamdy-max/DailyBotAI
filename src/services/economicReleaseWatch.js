@@ -3,6 +3,7 @@ const db = require('../database/db');
 const config = require('../config');
 const { getMultiSourceCalendar, eventHash, isHighImpact } = require('./newsCalendarGate');
 const { translateToArabic } = require('./newsTranslator');
+const { refreshDailyNewsBrief } = require('./dailyNewsBriefService');
 
 const IMPORTANT = new Set(['USD','EUR','GBP','JPY','CHF']);
 const TZ = 'Africa/Cairo';
@@ -66,9 +67,7 @@ function interpretation(e) {
   const a = num(e.actual), f = num(e.forecast), c = String(e.currency || '').toUpperCase();
   if (a == null || f == null) return `صدرت القراءة الجديدة؛ راقب تأثيرها الفعلي على ${c}.`;
   const title = String(e.title || '').toLowerCase();
-  // For these indicators, a higher reading is normally supportive for the currency.
   const higherPositive = /ppi|producer price|cpi|consumer price|gdp|retail sales|pmi|employment change|average hourly/.test(title);
-  // For unemployment/jobless claims, lower is normally supportive.
   const lowerPositive = /unemployment rate|jobless claims|unemployment claims/.test(title);
   let positive = null;
   if (higherPositive) positive = a > f ? true : a < f ? false : null;
@@ -83,6 +82,7 @@ async function cycle(bot) {
   try {
     const cal = await getMultiSourceCalendar(true);
     const now = Date.now();
+    let sentAny = false;
     for (const e of cal.data || []) {
       const cur = String(e.currency || '').toUpperCase();
       if (!IMPORTANT.has(cur)) continue;
@@ -91,7 +91,6 @@ async function cycle(bot) {
       const ts = new Date(e.date).getTime();
       if (!Number.isFinite(ts)) continue;
       const ageMin = (now - ts) / 60000;
-      // Catch releases missed during restarts/provider delays for up to 3 hours.
       if (ageMin < -2 || ageMin > 180) continue;
       if (!validActual(e.actual)) continue;
       const key = `news_released_${eventHash(e)}`;
@@ -103,7 +102,12 @@ async function cycle(bot) {
       const msg = `${icon} <b>صدر الآن :</b>\n\n💠 <b>${countryName(e)} - ${flag(e)}</b>\n\n🔵 <b>${title}</b>\n\n🔖 درجة الأهمية ${stars}\n\n🕒 السابق : ${e.previous ?? '-'}\n🕞 التقدير : ${e.forecast ?? '-'}\n🕓 الحالي : <b>${e.actual}</b>\n\n👈 النتيجة : ${interpretation(e)}\n\n━━━━━━━━━━━━━━\n\n#ForexNews #EconomicNews\n@Forexaitrade_bot`;
       await bot.telegram.sendMessage(String(config.mainGroupId), msg, { parse_mode:'HTML', disable_web_page_preview:true });
       mark(key);
+      sentAny = true;
       console.log(`📣 Economic release sent: ${e.title} | ${cur} | ${imp} | Actual=${e.actual}`);
+    }
+
+    if (sentAny) {
+      await refreshDailyNewsBrief(bot);
     }
   } catch (err) {
     console.log('⚠️ Economic release watch error:', err.message);
@@ -112,6 +116,6 @@ async function cycle(bot) {
 function startEconomicReleaseWatch(bot) {
   cron.schedule('* * * * *', () => cycle(bot), { timezone: TZ });
   setTimeout(() => cycle(bot), 15000);
-  console.log('📣 Economic release watch every 1 minute | HIGH+MEDIUM | catch-up=3h');
+  console.log('📣 Economic release watch every 1 minute | HIGH+MEDIUM | catch-up=3h | syncs pinned daily brief');
 }
 module.exports = { startEconomicReleaseWatch, cycle };
