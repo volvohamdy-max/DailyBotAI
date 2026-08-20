@@ -73,7 +73,7 @@ async function monitorTrades(bot) {
 
             if (trade.action === 'BUY') {
 
-                // TP2
+                // TP2 (legacy safety: only reachable if price jumps directly beyond TP2 before TP1 is processed)
                 if (
                     trade.target2 != null &&
                     price >= Number(trade.target2)
@@ -101,7 +101,7 @@ ${trade.target2}
                     resultType = 'TP2';
                 }
 
-                // TP1
+                // TP1 = FULL WIN / FULL CLOSE
                 else if (
                     (trade.status === 'open' || trade.status === 'secured') &&
                     trade.target1 != null &&
@@ -121,12 +121,11 @@ ${trade.entry}
 🎯 TP1:
 ${trade.target1}
 
-⏳ في انتظار الهدف الثاني:
-${trade.target2 || '-'}
+✅ تم إغلاق الصفقة بالكامل على الهدف الأول 🎉
+🏆 الصفقة محسوبة WIN كاملة.
+🛡️ لا يوجد وقف خسارة بعد تحقيق TP1.`;
 
-✅ الصفقة في ربح 🎉`;
-
-                    newStatus = 'target1';
+                    newStatus = 'closed';
                     resultType = 'TP1';
                 }
 
@@ -233,7 +232,7 @@ ${trade.stop_loss}
 
             else if (trade.action === 'SELL') {
 
-                // TP2
+                // TP2 (legacy safety: only reachable if price jumps directly beyond TP2 before TP1 is processed)
                 if (
                     trade.target2 != null &&
                     price <= Number(trade.target2)
@@ -261,7 +260,7 @@ ${trade.target2}
                     resultType = 'TP2';
                 }
 
-                // TP1
+                // TP1 = FULL WIN / FULL CLOSE
                 else if (
                     (trade.status === 'open' || trade.status === 'secured') &&
                     trade.target1 != null &&
@@ -281,12 +280,11 @@ ${trade.entry}
 🎯 TP1:
 ${trade.target1}
 
-⏳ في انتظار الهدف الثاني:
-${trade.target2 || '-'}
+✅ تم إغلاق الصفقة بالكامل على الهدف الأول 🎉
+🏆 الصفقة محسوبة WIN كاملة.
+🛡️ لا يوجد وقف خسارة بعد تحقيق TP1.`;
 
-✅ الصفقة في ربح 🎉`;
-
-                    newStatus = 'target1';
+                    newStatus = 'closed';
                     resultType = 'TP1';
                 }
 
@@ -437,9 +435,8 @@ ${message}`;
                 ) {
                     recordSl(trade, price);
                 } else if (resultType === 'BREAKEVEN') {
-  recordBreakeven(trade, price);
-}
-
+                    recordBreakeven(trade, price);
+                }
 
                 // ==========================================
                 // TRADE RESULT ROUTING
