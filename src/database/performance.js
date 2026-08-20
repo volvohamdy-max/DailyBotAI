@@ -1,5 +1,9 @@
 const db = require('./db');
 
+function nowSql() {
+  return new Date().toISOString();
+}
+
 function ensureTable() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS trade_performance (
@@ -25,10 +29,51 @@ function ensureTable() {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
-}
 
-function nowSql() {
-  return new Date().toISOString();
+  // Historical normalization: under the current policy, TP1 closes the full trade.
+  // Any old trade that reached TP1 (without TP2) must therefore be a full TP1 win,
+  // never TP1_THEN_SL / TP1_OPEN / waiting for TP2.
+  db.exec(`
+    UPDATE trade_performance
+    SET
+      sl_hit = 0,
+      closed_at = COALESCE(tp1_at, closed_at, updated_at, created_at),
+      exit_price = CASE
+        WHEN target1 IS NOT NULL THEN target1
+        ELSE exit_price
+      END,
+      outcome = 'TP1',
+      realized_r = CASE
+        WHEN entry IS NOT NULL
+          AND stop_loss IS NOT NULL
+          AND target1 IS NOT NULL
+          AND ABS(entry - stop_loss) > 0
+        THEN ROUND(ABS(target1 - entry) / ABS(entry - stop_loss), 3)
+        ELSE realized_r
+      END,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE tp1_hit = 1
+      AND COALESCE(tp2_hit, 0) = 0
+      AND COALESCE(outcome, '') <> 'TP1';
+  `);
+
+  // Close legacy trade rows that were left at target1/open/secured after TP1.
+  try {
+    db.exec(`
+      UPDATE trades
+      SET status = 'closed'
+      WHERE id IN (
+        SELECT trade_id
+        FROM trade_performance
+        WHERE tp1_hit = 1
+          AND COALESCE(tp2_hit, 0) = 0
+          AND outcome = 'TP1'
+      )
+      AND status <> 'closed';
+    `);
+  } catch (_) {
+    // trades table may not exist in isolated tests.
+  }
 }
 
 function riskDistance(trade) {
@@ -45,23 +90,7 @@ function realizedR(trade, exitPrice, outcome) {
   const risk = riskDistance(trade);
   if (!risk) return null;
 
-  if (outcome === 'SL') {
-    return -1;
-  }
-
-  if (outcome === 'TP1_THEN_SL') {
-    const entry = Number(trade.entry);
-    const tp1 = Number(trade.target1);
-
-    if (!Number.isFinite(entry) || !Number.isFinite(tp1)) {
-      return 0;
-    }
-
-    const tp1R = Math.abs(tp1 - entry) / risk;
-    const finalR = (tp1R * 0.5) - 0.5;
-
-    return Number(finalR.toFixed(3));
-  }
+  if (outcome === 'SL') return -1;
 
   const entry = Number(trade.entry);
   const exit = Number(exitPrice);
@@ -115,6 +144,7 @@ function recordTp1(trade, price) {
     UPDATE trade_performance
     SET
       tp1_hit = 1,
+      sl_hit = 0,
       tp1_at = COALESCE(tp1_at, ?),
       closed_at = COALESCE(closed_at, ?),
       exit_price = ?,
@@ -135,13 +165,18 @@ function recordTp1(trade, price) {
 function recordTp2(trade, price) {
   ensureTradeTracked(trade);
 
-  const r = realizedR(trade, trade.target2 ?? price, 'TP2');
+  const exitPrice = Number.isFinite(Number(trade.target2))
+    ? Number(trade.target2)
+    : Number(price);
+  const r = realizedR(trade, exitPrice, 'TP2');
+  const now = nowSql();
 
   db.prepare(`
     UPDATE trade_performance
     SET
       tp1_hit = 1,
       tp2_hit = 1,
+      sl_hit = 0,
       tp1_at = COALESCE(tp1_at, ?),
       closed_at = ?,
       exit_price = ?,
@@ -150,11 +185,11 @@ function recordTp2(trade, price) {
       updated_at = ?
     WHERE trade_id = ?
   `).run(
-    nowSql(),
-    nowSql(),
-    Number(price),
+    now,
+    now,
+    exitPrice,
     r,
-    nowSql(),
+    now,
     Number(trade.id)
   );
 }
@@ -163,12 +198,15 @@ function recordSl(trade, price) {
   ensureTradeTracked(trade);
 
   const existing = db.prepare(
-    'SELECT tp1_hit FROM trade_performance WHERE trade_id = ?'
+    'SELECT tp1_hit, tp2_hit FROM trade_performance WHERE trade_id = ?'
   ).get(Number(trade.id));
 
-  const tp1Hit = Number(existing?.tp1_hit || 0) === 1;
-  const outcome = tp1Hit ? 'TP1_THEN_SL' : 'SL';
-  const r = realizedR(trade, price, outcome);
+  // Safety net: once TP1 was hit, this trade is already a closed win.
+  if (Number(existing?.tp1_hit || 0) === 1 && Number(existing?.tp2_hit || 0) !== 1) {
+    return recordTp1(trade, trade.target1 ?? price);
+  }
+
+  const r = realizedR(trade, price, 'SL');
 
   db.prepare(`
     UPDATE trade_performance
@@ -176,14 +214,13 @@ function recordSl(trade, price) {
       sl_hit = 1,
       closed_at = ?,
       exit_price = ?,
-      outcome = ?,
+      outcome = 'SL',
       realized_r = ?,
       updated_at = ?
     WHERE trade_id = ?
   `).run(
     nowSql(),
     Number(price),
-    outcome,
     r,
     nowSql(),
     Number(trade.id)
@@ -211,74 +248,28 @@ function recordBreakeven(trade, price) {
 }
 
 function goldPipsForRow(row) {
-  if (
-    String(row.pair || '').toUpperCase() !== 'XAUUSD'
-  ) {
-    return null;
-  }
+  if (String(row.pair || '').toUpperCase() !== 'XAUUSD') return null;
 
   const PIP_SIZE = 0.01;
+  const action = String(row.action || '').toUpperCase();
+  const entry = Number(row.entry);
 
-  const action =
-    String(row.action || '')
-      .toUpperCase();
-
-  const entry =
-    Number(row.entry);
-
-  if (
-    !Number.isFinite(entry) ||
-    (action !== 'BUY' && action !== 'SELL')
-  ) {
+  if (!Number.isFinite(entry) || (action !== 'BUY' && action !== 'SELL')) {
     return null;
   }
 
   function moveTo(price) {
     const exit = Number(price);
+    if (!Number.isFinite(exit)) return null;
 
-    if (!Number.isFinite(exit)) {
-      return null;
-    }
-
-    const move =
-      action === 'BUY'
-        ? exit - entry
-        : entry - exit;
-
+    const move = action === 'BUY' ? exit - entry : entry - exit;
     return move / PIP_SIZE;
   }
 
-  if (row.outcome === 'TP1') {
-    return moveTo(row.target1);
-  }
-
-  if (row.outcome === 'TP2') {
-    return moveTo(row.target2);
-  }
-
-  if (row.outcome === 'SL') {
-    return moveTo(row.stop_loss);
-  }
-
-  if (row.outcome === 'TP1_THEN_SL') {
-    const tp1Pips =
-      moveTo(row.target1);
-
-    const slPips =
-      moveTo(row.stop_loss);
-
-    if (
-      !Number.isFinite(tp1Pips) ||
-      !Number.isFinite(slPips)
-    ) {
-      return null;
-    }
-
-    return (
-      tp1Pips * 0.5 +
-      slPips * 0.5
-    );
-  }
+  if (row.outcome === 'TP1') return moveTo(row.target1);
+  if (row.outcome === 'TP2') return moveTo(row.target2);
+  if (row.outcome === 'SL') return moveTo(row.stop_loss);
+  if (row.outcome === 'BREAKEVEN') return 0;
 
   return null;
 }
@@ -300,33 +291,14 @@ function getStats(days) {
   const closed = rows.filter((x) => x.closed_at);
   const active = rows.filter((x) => !x.closed_at);
 
-  const waitingTp2 = active.filter(
-    (x) => Number(x.tp1_hit) === 1
-  ).length;
+  const waitingTp2 = 0;
+  const open = active.length;
 
-  const open = active.filter(
-    (x) => Number(x.tp1_hit) !== 1
-  ).length;
-
-  const tp1 = rows.filter(
-    (x) => Number(x.tp1_hit) === 1
-  ).length;
-
-  const tp2 = rows.filter(
-    (x) => Number(x.tp2_hit) === 1
-  ).length;
-
-  const sl = rows.filter(
-    (x) => Number(x.sl_hit) === 1
-  ).length;
-
-  const tp1ThenSl = rows.filter(
-    (x) => x.outcome === 'TP1_THEN_SL'
-  ).length;
-
-  const pureSl = rows.filter(
-    (x) => x.outcome === 'SL'
-  ).length;
+  const tp1 = rows.filter((x) => Number(x.tp1_hit) === 1).length;
+  const tp2 = rows.filter((x) => Number(x.tp2_hit) === 1).length;
+  const sl = rows.filter((x) => Number(x.sl_hit) === 1).length;
+  const tp1ThenSl = 0;
+  const pureSl = rows.filter((x) => x.outcome === 'SL').length;
 
   const rValues = closed
     .filter((x) => x.realized_r !== null && x.realized_r !== undefined)
@@ -370,68 +342,25 @@ function getStats(days) {
     : null;
 
   const pipResults = closed
-    .map((row) => {
-      const pips = goldPipsForRow(row);
-
-      return {
-        row,
-        pips
-      };
-    })
-    .filter((x) =>
-      Number.isFinite(x.pips)
-    );
+    .map((row) => ({ row, pips: goldPipsForRow(row) }))
+    .filter((x) => Number.isFinite(x.pips));
 
   const totalPips = pipResults.length
-    ? pipResults.reduce(
-        (sum, x) => sum + x.pips,
-        0
-      )
+    ? pipResults.reduce((sum, x) => sum + x.pips, 0)
     : null;
 
-  const avgPips = pipResults.length
-    ? totalPips / pipResults.length
+  const avgPips = pipResults.length ? totalPips / pipResults.length : null;
+  const winningPipTrades = pipResults.filter((x) => x.pips > 0).length;
+  const losingPipTrades = pipResults.filter((x) => x.pips < 0).length;
+  const breakevenPipTrades = pipResults.filter((x) => Math.abs(x.pips) < 0.0001).length;
+
+  const bestPipTrade = pipResults.length
+    ? pipResults.reduce((best, x) => !best || x.pips > best.pips ? x : best, null)
     : null;
 
-  const winningPipTrades =
-    pipResults.filter(
-      (x) => x.pips > 0
-    ).length;
-
-  const losingPipTrades =
-    pipResults.filter(
-      (x) => x.pips < 0
-    ).length;
-
-  const breakevenPipTrades =
-    pipResults.filter(
-      (x) =>
-        Math.abs(x.pips) < 0.0001
-    ).length;
-
-  const bestPipTrade =
-    pipResults.length
-      ? pipResults.reduce(
-          (best, x) =>
-            !best ||
-            x.pips > best.pips
-              ? x
-              : best,
-          null
-        )
-      : null;
-
-  const worstPipTrade =
-    pipResults.length
-      ? pipResults.reduce(
-          (worst, x) =>
-            !worst ||
-            x.pips < worst.pips
-              ? x
-              : worst,
-          null
-        )
-      : null;
+  const worstPipTrade = pipResults.length
+    ? pipResults.reduce((worst, x) => !worst || x.pips < worst.pips ? x : worst, null)
+    : null;
 
   const byPair = {};
   const byStrategy = {};
@@ -459,11 +388,7 @@ function getStats(days) {
     }
 
     byPair[pair].total += 1;
-
-    if (row.closed_at) {
-      byPair[pair].closed += 1;
-    }
-
+    if (row.closed_at) byPair[pair].closed += 1;
     if (Number(row.tp1_hit) === 1) byPair[pair].tp1 += 1;
     if (Number(row.tp2_hit) === 1) byPair[pair].tp2 += 1;
     if (Number(row.sl_hit) === 1) byPair[pair].sl += 1;
@@ -472,6 +397,7 @@ function getStats(days) {
     if (!byStrategy[key]) {
       byStrategy[key] = { total: 0, closed: 0, tp1: 0, tp2: 0, sl: 0, netR: 0 };
     }
+
     const st = byStrategy[key];
     st.total += 1;
     if (row.closed_at) st.closed += 1;
@@ -498,41 +424,27 @@ function getStats(days) {
     avgR,
     totalR,
     reachedR,
-
     totalPips,
     avgPips,
     winningPipTrades,
     losingPipTrades,
     breakevenPipTrades,
-
-    bestPipTrade:
-      bestPipTrade
-        ? {
-            tradeId:
-              bestPipTrade.row.trade_id,
-            pips:
-              bestPipTrade.pips,
-            action:
-              bestPipTrade.row.action,
-            outcome:
-              bestPipTrade.row.outcome
-          }
-        : null,
-
-    worstPipTrade:
-      worstPipTrade
-        ? {
-            tradeId:
-              worstPipTrade.row.trade_id,
-            pips:
-              worstPipTrade.pips,
-            action:
-              worstPipTrade.row.action,
-            outcome:
-              worstPipTrade.row.outcome
-          }
-        : null,
-
+    bestPipTrade: bestPipTrade
+      ? {
+          tradeId: bestPipTrade.row.trade_id,
+          pips: bestPipTrade.pips,
+          action: bestPipTrade.row.action,
+          outcome: bestPipTrade.row.outcome
+        }
+      : null,
+    worstPipTrade: worstPipTrade
+      ? {
+          tradeId: worstPipTrade.row.trade_id,
+          pips: worstPipTrade.pips,
+          action: worstPipTrade.row.action,
+          outcome: worstPipTrade.row.outcome
+        }
+      : null,
     byPair,
     byStrategy
   };
