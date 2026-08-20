@@ -173,6 +173,27 @@ function canSendAlert(telegramId, pair, action, cooldownMinutes = 30) {
   return Date.now() - last >= cooldownMinutes * 60 * 1000;
 }
 
+// Scale path for hundreds of VIP users: one indexed query per alert cycle
+// instead of one SQL lookup for every user x opportunity combination.
+function getRecentAlertCooldownMap(cooldownMinutes = 30) {
+  const cutoff = new Date(Date.now() - Number(cooldownMinutes || 30) * 60 * 1000).toISOString();
+  const rows = db.prepare(`
+    SELECT telegram_id, pair, action, MAX(sent_at) AS sent_at
+    FROM alert_history
+    WHERE sent_at >= ?
+    GROUP BY telegram_id, pair, action
+  `).all(cutoff);
+
+  const map = new Map();
+  for (const row of rows) {
+    map.set(
+      `${String(row.telegram_id)}|${row.pair}|${row.action}`,
+      row.sent_at
+    );
+  }
+  return map;
+}
+
 function recordAlert(telegramId, pair, action, score, confidence) {
   db.prepare(`
     INSERT INTO alert_history
@@ -197,5 +218,6 @@ module.exports = {
   setAllPairs,
   getEligibleAlertUsers,
   canSendAlert,
+  getRecentAlertCooldownMap,
   recordAlert
 };
