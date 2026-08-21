@@ -1,5 +1,9 @@
 const { buildGoldRegimeResult } = require('./goldRegimeStrategy');
-const { addTrade, getOpenTrades } = require('../database/trades');
+const {
+  addTrade,
+  getOpenTrades,
+  updateTradeStatus
+} = require('../database/trades');
 const config = require('../config');
 
 async function scanGoldRegimeSignals(bot) {
@@ -81,7 +85,26 @@ TP2 → 1:${Number(meta.rrTp2).toFixed(2)}
 
 💎 النوع: GOLD REGIME — مستقل عن السكالب`;
 
-    await bot.telegram.sendMessage(config.vipChannelId, msg);
+    try {
+      await bot.telegram.sendMessage(config.vipChannelId, msg);
+    } catch (sendError) {
+      // Never keep an unsent VIP signal open in the DB.
+      // Otherwise tradeMonitor may later publish TP/SL for a trade users never received.
+      try {
+        updateTradeStatus(tradeId, 'closed');
+      } catch (rollbackError) {
+        console.log(
+          `❌ GOLD REGIME rollback failed for Trade #${tradeId}:`,
+          rollbackError.message
+        );
+      }
+
+      console.log(
+        `❌ GOLD REGIME VIP send failed | Trade #${tradeId} closed to prevent orphan result:`,
+        sendError.message
+      );
+      throw sendError;
+    }
 
     if (typeof meta.markSent === 'function') {
       meta.markSent();
