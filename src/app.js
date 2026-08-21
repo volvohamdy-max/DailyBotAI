@@ -1,3 +1,5 @@
+require('./services/intlTimezoneCompat');
+
 const { Telegraf } = require('telegraf');
 const config = require('./config');
 const initDatabase = require('./database/init');
