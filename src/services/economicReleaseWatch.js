@@ -76,7 +76,8 @@ async function arabicTitle(title) {
     ['fomc minutes','محضر اجتماع الاحتياطي الفيدرالي'],['interest rate','قرار سعر الفائدة']
   ];
   for (const [en, ar] of rules) if (t.includes(en)) return ar;
-  try { return (await translateToArabic(String(title || ''))) || String(title || 'خبر اقتصادي'); } catch { return String(title || 'خبر اقتصادي'); }
+  try { return (await translateToArabic(String(title || ''))) || String(title || 'خبر اقتصادي'); }
+  catch { return String(title || 'خبر اقتصادي'); }
 }
 function num(v) {
   if (v == null) return null;
@@ -94,7 +95,7 @@ function interpretation(e) {
   if (lowerPositive) positive = a < f ? true : a > f ? false : null;
   if (positive === true) return `القراءة جاءت أفضل من المتوقع، وهو عامل إيجابي مبدئيًا لـ ${c}.`;
   if (positive === false) return `القراءة جاءت أضعف من المتوقع، وهو عامل سلبي مبدئيًا لـ ${c}.`;
-  return `القراءة جاءت قريبة من المتوقع؛ التأثير يعتمد على تفاصيل الإصدار ورد فعل السوق.`;
+  return 'القراءة جاءت قريبة من المتوقع؛ التأثير يعتمد على تفاصيل الإصدار ورد فعل السوق.';
 }
 
 function normalizeTitle(value) {
@@ -105,10 +106,8 @@ function normalizeTitle(value) {
     .replace(/\s+/g, ' ')
     .trim();
 }
-
 function titleSimilarity(a, b) {
-  const aa = normalizeTitle(a);
-  const bb = normalizeTitle(b);
+  const aa = normalizeTitle(a), bb = normalizeTitle(b);
   if (!aa || !bb) return 0;
   if (aa === bb || aa.includes(bb) || bb.includes(aa)) return 1;
   const aset = new Set(aa.split(' ').filter(x => x.length > 2));
@@ -126,22 +125,17 @@ function snapshotFiveMinuteAlerts(events, now) {
       (pending_id,event_hash,currency,title,event_time,forecast,previous,status)
     VALUES (?,?,?,?,?,?,?,'pending')
   `);
-
   for (const e of events || []) {
     const cur = String(e.currency || '').toUpperCase();
-    if (!IMPORTANT.has(cur)) continue;
-    if (impact(e) !== 'high') continue;
+    if (!IMPORTANT.has(cur) || impact(e) !== 'high') continue;
     const ts = new Date(e.date).getTime();
     if (!Number.isFinite(ts)) continue;
     const minutesTo = (ts - now) / 60000;
     if (minutesTo < -2 || minutesTo > 10) continue;
-
     const hash = eventHash(e);
     if (!seen(`news_5m_${hash}`)) continue;
-
-    const pendingId = `pending_${hash}`;
     insert.run(
-      pendingId,
+      `pending_${hash}`,
       hash,
       cur,
       String(e.title || 'Economic event'),
@@ -149,25 +143,16 @@ function snapshotFiveMinuteAlerts(events, now) {
       e.forecast == null ? null : String(e.forecast),
       e.previous == null ? null : String(e.previous)
     );
-    console.log(`🧷 Pending release locked from 5m alert: ${e.title} | ${cur}`);
   }
 }
 
 function getPendingRows(now) {
   ensurePendingTable();
-  const rows = db.prepare(`
-    SELECT * FROM pending_news_releases
-    WHERE status='pending'
-    ORDER BY event_time ASC
-  `).all();
-
+  const rows = db.prepare(`SELECT * FROM pending_news_releases WHERE status='pending' ORDER BY event_time ASC`).all();
   const expire = db.prepare(`UPDATE pending_news_releases SET status='expired' WHERE pending_id=?`);
   return rows.filter(row => {
     const ts = new Date(row.event_time).getTime();
-    if (!Number.isFinite(ts)) {
-      expire.run(row.pending_id);
-      return false;
-    }
+    if (!Number.isFinite(ts)) { expire.run(row.pending_id); return false; }
     const ageMin = (now - ts) / 60000;
     if (ageMin > PENDING_TTL_MINUTES) {
       expire.run(row.pending_id);
@@ -180,9 +165,7 @@ function getPendingRows(now) {
 
 function findPendingMatch(row, events) {
   const targetTs = new Date(row.event_time).getTime();
-  let best = null;
-  let bestScore = 0;
-
+  let best = null, bestScore = 0;
   for (const e of events || []) {
     if (String(e.currency || '').toUpperCase() !== String(row.currency || '').toUpperCase()) continue;
     const ts = new Date(e.date).getTime();
@@ -191,10 +174,22 @@ function findPendingMatch(row, events) {
     if (similarity < 0.45) continue;
     const timeScore = 1 - Math.min(Math.abs(ts - targetTs) / (60 * 60 * 1000), 1);
     const score = similarity * 0.8 + timeScore * 0.2;
-    if (score > bestScore) {
-      best = e;
-      bestScore = score;
-    }
+    if (score > bestScore) { best = e; bestScore = score; }
+  }
+  return best;
+}
+
+function findPendingForEvent(e, rows) {
+  const ts = new Date(e.date).getTime();
+  let best = null, bestScore = 0;
+  for (const row of rows || []) {
+    if (String(row.currency || '').toUpperCase() !== String(e.currency || '').toUpperCase()) continue;
+    const pts = new Date(row.event_time).getTime();
+    if (!Number.isFinite(pts) || !Number.isFinite(ts) || Math.abs(pts - ts) > 60 * 60 * 1000) continue;
+    const similarity = titleSimilarity(row.title, e.title);
+    if (similarity < 0.45) continue;
+    const score = similarity * 0.8 + (1 - Math.min(Math.abs(pts - ts) / (60 * 60 * 1000), 1)) * 0.2;
+    if (score > bestScore) { best = row; bestScore = score; }
   }
   return best;
 }
@@ -202,7 +197,6 @@ function findPendingMatch(row, events) {
 async function enrichPending(row, events) {
   let e = findPendingMatch(row, events);
   if (e && validActual(e.actual)) return e;
-
   const base = e || {
     currency: row.currency,
     title: row.title,
@@ -211,7 +205,6 @@ async function enrichPending(row, events) {
     previous: row.previous,
     impact: 'high'
   };
-
   const ageMin = (Date.now() - new Date(row.event_time).getTime()) / 60000;
   if (ageMin >= 1) {
     try {
@@ -225,30 +218,18 @@ async function enrichPending(row, events) {
       console.log(`⚠️ Pending Investing fallback failed: ${row.title} | ${error.message}`);
     }
   }
-
   return base;
 }
-
 function touchPending(row) {
-  db.prepare(`
-    UPDATE pending_news_releases
-    SET attempts=attempts+1,last_checked_at=CURRENT_TIMESTAMP
-    WHERE pending_id=?
-  `).run(row.pending_id);
+  db.prepare(`UPDATE pending_news_releases SET attempts=attempts+1,last_checked_at=CURRENT_TIMESTAMP WHERE pending_id=?`).run(row.pending_id);
 }
-
 function completePending(row) {
-  db.prepare(`
-    UPDATE pending_news_releases
-    SET status='sent',last_checked_at=CURRENT_TIMESTAMP
-    WHERE pending_id=?
-  `).run(row.pending_id);
+  db.prepare(`UPDATE pending_news_releases SET status='sent',last_checked_at=CURRENT_TIMESTAMP WHERE pending_id=?`).run(row.pending_id);
 }
 
 async function sendRelease(bot, e, releaseHash) {
   const key = `news_released_${releaseHash}`;
   if (seen(key) || !validActual(e.actual)) return false;
-
   const imp = impact(e) === 'medium' ? 'medium' : 'high';
   const title = await arabicTitle(e.title);
   const stars = imp === 'high' ? '⭐⭐⭐' : '⭐⭐';
@@ -269,12 +250,12 @@ async function cycle(bot) {
     const now = Date.now();
     let sentAny = false;
 
-    // Any HIGH-impact event that already produced a 5-minute warning is
-    // persisted before release. It remains pending even if providers later
-    // rename, move or temporarily omit the event.
     snapshotFiveMinuteAlerts(cal.data || [], now);
+    let pendingRows = getPendingRows(now);
 
-    // Normal release discovery for all HIGH/MEDIUM events.
+    // Normal release discovery. If this event corresponds to a persisted 5m
+    // warning, use the original pending hash so title/time changes cannot
+    // create a second release alert.
     for (const e of cal.data || []) {
       const cur = String(e.currency || '').toUpperCase();
       if (!IMPORTANT.has(cur)) continue;
@@ -283,19 +264,27 @@ async function cycle(bot) {
       const ts = new Date(e.date).getTime();
       if (!Number.isFinite(ts)) continue;
       const ageMin = (now - ts) / 60000;
-      if (ageMin < -2 || ageMin > 180) continue;
-      if (!validActual(e.actual)) continue;
-      if (await sendRelease(bot, e, eventHash(e))) sentAny = true;
+      if (ageMin < -2 || ageMin > 180 || !validActual(e.actual)) continue;
+
+      const pending = findPendingForEvent(e, pendingRows);
+      const releaseHash = pending ? pending.event_hash : eventHash(e);
+      if (await sendRelease(bot, e, releaseHash)) sentAny = true;
+
+      if (pending && seen(`news_released_${releaseHash}`)) {
+        completePending(pending);
+        // Also mark the provider's current hash to suppress any other legacy
+        // release path that sees the renamed/rescheduled event.
+        mark(`news_released_${eventHash(e)}`);
+      }
     }
 
-    // Guaranteed follow-up lane for events that had a 5-minute warning.
-    // Keep retrying for up to NEWS_PENDING_TTL_MINUTES (default 6 hours).
-    for (const row of getPendingRows(now)) {
+    pendingRows = getPendingRows(now);
+
+    // Guaranteed follow-up lane for every HIGH event that had a 5-minute
+    // warning. Retry for up to NEWS_PENDING_TTL_MINUTES (default 6 hours).
+    for (const row of pendingRows) {
       const releasedKey = `news_released_${row.event_hash}`;
-      if (seen(releasedKey)) {
-        completePending(row);
-        continue;
-      }
+      if (seen(releasedKey)) { completePending(row); continue; }
 
       touchPending(row);
       const e = await enrichPending(row, cal.data || []);
@@ -306,22 +295,26 @@ async function cycle(bot) {
 
       if (await sendRelease(bot, e, row.event_hash)) {
         completePending(row);
+        // If we matched a current provider event, suppress its current hash too.
+        if (e.date && e.title) mark(`news_released_${eventHash(e)}`);
         sentAny = true;
         console.log(`✅ Pending 5m alert completed with Actual: ${row.title} | ${row.currency}`);
       }
     }
 
-    if (sentAny) {
-      await refreshDailyNewsBrief(bot);
-    }
+    if (sentAny) await refreshDailyNewsBrief(bot);
   } catch (err) {
     console.log('⚠️ Economic release watch error:', err.message);
-  } finally { running = false; }
+  } finally {
+    running = false;
+  }
 }
+
 function startEconomicReleaseWatch(bot) {
   ensurePendingTable();
   cron.schedule('* * * * *', () => cycle(bot), { timezone: TZ });
   setTimeout(() => cycle(bot), 15000);
   console.log(`📣 Economic release watch every 1 minute | HIGH+MEDIUM | 5m alerts persisted | pending TTL=${PENDING_TTL_MINUTES}m | syncs pinned daily brief`);
 }
+
 module.exports = { startEconomicReleaseWatch, cycle };
