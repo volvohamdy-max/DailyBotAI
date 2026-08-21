@@ -159,9 +159,7 @@ if (
           rrTp2: riskDistance > 0 ? Math.abs(tp2 - entry) / riskDistance : null
         };
 
-        console.log('⚡ Using Gold Scalper levels:', {
-          strategy: result.scalpMeta?.strategyId || 'SCALP',
-          timeframe: result.scalpMeta?.timeframe || '5M',
+        console.log('⚡ Using Gold Scalper 5M levels:', {
           entry: levels.entry,
           sl: levels.sl,
           tp1: levels.tp1,
@@ -178,13 +176,8 @@ if (
         continue;
       }
 
-      const allowValidatedWideStop =
-        pair === 'XAUUSD' &&
-        result.scalpMeta?.allowValidatedWideStop === true;
-
       if (
         pair === 'XAUUSD' &&
-        !allowValidatedWideStop &&
         Number(levels.riskPct) > getNumberSetting('gold_max_risk_pct', 0.35)
       ) {
         console.log(
@@ -195,7 +188,6 @@ if (
 
       if (
         pair === 'XAUUSD' &&
-        !allowValidatedWideStop &&
         Number.isFinite(Number(levels.riskDistance))
       ) {
         const atr = Number(result.scalpMeta?.atr5 || result.indicators?.atr || 0);
@@ -207,12 +199,6 @@ if (
           );
           continue;
         }
-      }
-
-      if (allowValidatedWideStop) {
-        console.log(
-          `👑 GOLD PRIME validated H4 risk accepted | SL=${Number(levels.riskDistance).toFixed(2)} | risk=${Number(levels.riskPct).toFixed(3)}%`
-        );
       }
 
       let scalpEntry;
@@ -365,19 +351,14 @@ if (
       }
 
       const isProStrategy = scalpStrategyId === 'PRO_STRATEGY';
-      const isGoldPrime = scalpStrategyId === 'GOLD_PRIME';
 
       const targetBlock = isProStrategy
         ? `📌 إدارة الصفقة\nالخروج ليس بهدف سعري ثابت.\n${result.signal.action === 'BUY' ? '✅ إغلاق الصفقة عند RSI(14) ≥ 63' : '✅ إغلاق الصفقة عند RSI(14) ≤ 37'}\n\n🧪 الاستراتيجية: RSI Reversal + Daily EMA50\n🕒 لا دخول بين 15:00 و16:59 UTC`
-        : isGoldPrime
-          ? `🎯 الهدف\n${Number(levels.tp1).toFixed(2)}\n\n👑 المحرك: ${result.scalpMeta?.subStrategyLabel || result.scalpMeta?.subStrategy || 'Gold Prime'}\n⚖️ الهدف المختبر: ${Number(result.scalpMeta?.testedRR || levels.rrTp1).toFixed(1)}R`
-          : `🎯 الهدف الأول\n${Number(levels.tp1).toFixed(2)}\n\n🎯 الهدف الثاني\n${Number(levels.tp2).toFixed(2)}`;
+        : `🎯 الهدف الأول\n${Number(levels.tp1).toFixed(2)}\n\n🎯 الهدف الثاني\n${Number(levels.tp2).toFixed(2)}`;
 
       const riskBlock = isProStrategy
         ? `📏 مسافة وقف الخسارة\n${Number(levels.riskDistance).toFixed(2)} دولار`
-        : isGoldPrime
-          ? `📏 وقف H4 المختبر\n1.5 ATR(H4) = ${Number(levels.riskDistance).toFixed(2)} دولار`
-          : `⚖️ العائد للمخاطرة\nTP1 → 1:${Number(levels.rrTp1).toFixed(2)}\nTP2 → 1:${Number(levels.rrTp2).toFixed(2)}\n\n📏 مسافة وقف الخسارة\n${Number(levels.riskDistance).toFixed(2)}`;
+        : `⚖️ العائد للمخاطرة\nTP1 → 1:${Number(levels.rrTp1).toFixed(2)}\nTP2 → 1:${Number(levels.rrTp2).toFixed(2)}\n\n📏 مسافة وقف الخسارة\n${Number(levels.riskDistance).toFixed(2)}`;
 
 const message = `
 ⚡ إشارة سكالب — ${result.scalpMeta?.strategyLabel || 'Gold Scalp'}
@@ -414,7 +395,7 @@ ${pair === 'XAUUSD' && result.scalpMeta?.ready
       return `⚡ نوع الإشارة: ${result.scalpMeta?.strategyLabel || 'Gold Scalp'}
 🏅 جودة الفرصة: ${quality}
 ⭐ Scalp Score: ${result.scalpMeta.score}/100
-⏱️ الفريم التنفيذي: ${result.scalpMeta?.timeframe || '5M'}`;
+⏱️ الفريم التنفيذي: 5M`;
     })()
   : ''}
 
