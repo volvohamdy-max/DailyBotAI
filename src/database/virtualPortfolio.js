@@ -214,14 +214,9 @@ function settleTrade(tradeId) {
     String(trade.outcome || '')
   );
 
-  const win =
-    profitLoss > 0 ? 1 : 0;
-
-  const loss =
-    profitLoss < 0 ? 1 : 0;
-
-  const breakeven =
-    profitLoss === 0 ? 1 : 0;
+  const win = profitLoss > 0 ? 1 : 0;
+  const loss = profitLoss < 0 ? 1 : 0;
+  const breakeven = profitLoss === 0 ? 1 : 0;
 
   db.prepare(`
     UPDATE virtual_portfolio
@@ -229,16 +224,12 @@ function settleTrade(tradeId) {
       balance = ?,
       peak_balance = ?,
       max_drawdown_percent = ?,
-
       total_closed = total_closed + 1,
       winning_trades = winning_trades + ?,
       losing_trades = losing_trades + ?,
       breakeven_trades = breakeven_trades + ?,
-
       total_profit = total_profit + ?,
-
       updated_at = CURRENT_TIMESTAMP
-
     WHERE id = 1
   `).run(
     balanceAfter,
@@ -264,6 +255,51 @@ function settleTrade(tradeId) {
   `).get(id);
 }
 
+function syncClosedTrades() {
+  ensureTables();
+
+  let rows = [];
+  try {
+    rows = db.prepare(`
+      SELECT p.trade_id
+      FROM trade_performance p
+      LEFT JOIN virtual_portfolio_trades v
+        ON v.trade_id = p.trade_id
+      WHERE p.closed_at IS NOT NULL
+        AND p.realized_r IS NOT NULL
+        AND v.trade_id IS NULL
+      ORDER BY COALESCE(p.closed_at, p.opened_at, p.created_at) ASC, p.trade_id ASC
+    `).all();
+  } catch (error) {
+    // trade_performance may not exist yet during isolated startup/tests.
+    return { synced: 0, failed: 0 };
+  }
+
+  let synced = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    try {
+      const settled = settleTrade(row.trade_id);
+      if (settled) synced += 1;
+    } catch (error) {
+      failed += 1;
+      console.log(
+        `⚠️ VIRTUAL PORTFOLIO sync failed | Trade #${row.trade_id}:`,
+        error.message
+      );
+    }
+  }
+
+  if (synced > 0 || failed > 0) {
+    console.log(
+      `💼 VIRTUAL PORTFOLIO SYNC | settled=${synced} | failed=${failed}`
+    );
+  }
+
+  return { synced, failed };
+}
+
 function getRecentTrades(limit = 5) {
   ensureTables();
 
@@ -282,6 +318,10 @@ function getRecentTrades(limit = 5) {
 }
 
 function getStats() {
+  // Self-healing sync: every portfolio read imports any closed performance
+  // trades that were never settled. This also backfills historical rows.
+  syncClosedTrades();
+
   const p = getPortfolio();
 
   const starting =
@@ -300,13 +340,10 @@ function getStats() {
 
   return {
     ...p,
-
     starting_balance: starting,
     balance,
-
     net_profit: netProfit,
     return_percent: returnPercent,
-
     recent: getRecentTrades(5)
   };
 }
@@ -314,6 +351,7 @@ function getStats() {
 module.exports = {
   ensureTables,
   settleTrade,
+  syncClosedTrades,
   getPortfolio,
   getRecentTrades,
   getStats
