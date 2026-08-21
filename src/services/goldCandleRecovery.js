@@ -19,12 +19,12 @@ async function getGoldCandlesResilient(interval) {
   const cached = recoveryCache.get(key);
   const ttl = recoveryCacheMs(interval);
   if (cached && Date.now() - cached.time <= ttl) {
-    console.log(`🛟 GOLD CANDLE RECOVERY CACHE: ${key} | source=${cached.source}`);
+    console.log(`GOLD CANDLE RECOVERY CACHE: ${key} | source=${cached.source}`);
     return cached.candles;
   }
 
   if (inFlight.has(key)) {
-    console.log(`⏳ Shared gold candle request: ${key}`);
+    console.log(`Shared gold candle request: ${key}`);
     return inFlight.get(key);
   }
 
@@ -43,7 +43,7 @@ async function getGoldCandlesResilient(interval) {
       const status = error?.response?.status;
       const rateLimited = status === 429 || /429|rate.?limit/i.test(String(error?.message || ''));
       if (rateLimited) {
-        console.log(`🧊 GOLD DATA DEGRADED: ${key} rate-limited; duplicate recovery suppressed`);
+        console.log(`GOLD DATA DEGRADED: ${key} rate-limited; duplicate recovery suppressed`);
       }
       throw error;
     }

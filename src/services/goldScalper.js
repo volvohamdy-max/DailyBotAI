@@ -6,6 +6,16 @@ const proStrategy = require('./scalpStrategies/proStrategy');
 
 const STRATEGIES = [newYorkStrategy, aggressiveBreakoutA, proStrategy];
 
+function firstFiniteFrom(waits, keys) {
+  for (const wait of waits) {
+    for (const key of keys) {
+      const value = Number(wait?.[key]);
+      if (Number.isFinite(value)) return value;
+    }
+  }
+  return null;
+}
+
 async function scanGoldScalp() {
   const waits = [];
 
@@ -44,13 +54,34 @@ async function scanGoldScalp() {
     }
   }
 
-  return (
+  const primaryWait =
     waits[0] || {
       ready: false,
       status: 'NO_SCALP_STRATEGY_READY',
       pair: 'XAUUSD'
-    }
-  );
+    };
+
+  // Preserve the original wait/strategy selection exactly as before, while
+  // carrying forward indicator values calculated by any strategy in the same
+  // scan. This fixes null diagnostics without changing entry logic.
+  return {
+    ...primaryWait,
+    atr5: Number.isFinite(Number(primaryWait?.atr5))
+      ? Number(primaryWait.atr5)
+      : firstFiniteFrom(waits, ['atr5', 'atr']),
+    rsi5: Number.isFinite(Number(primaryWait?.rsi5))
+      ? Number(primaryWait.rsi5)
+      : firstFiniteFrom(waits, ['rsi5', 'rsi']),
+    adx5: Number.isFinite(Number(primaryWait?.adx5))
+      ? Number(primaryWait.adx5)
+      : firstFiniteFrom(waits, ['adx5', 'adx']),
+    vwap5: Number.isFinite(Number(primaryWait?.vwap5))
+      ? Number(primaryWait.vwap5)
+      : firstFiniteFrom(waits, ['vwap5', 'vwap']),
+    ema20: Number.isFinite(Number(primaryWait?.ema20))
+      ? Number(primaryWait.ema20)
+      : firstFiniteFrom(waits, ['ema20'])
+  };
 }
 
 async function buildGoldScalpResult() {
@@ -61,10 +92,11 @@ async function buildGoldScalpResult() {
       pair: 'XAUUSD',
       signal: null,
       indicators: {
-        atr: scalp?.atr5 || null,
-        rsi: scalp?.rsi5 || null,
-        adx: scalp?.adx5 || null,
-        vwap: scalp?.vwap5 || null
+        atr: scalp?.atr5 ?? null,
+        rsi: scalp?.rsi5 ?? null,
+        adx: scalp?.adx5 ?? null,
+        vwap: scalp?.vwap5 ?? null,
+        ema20: scalp?.ema20 ?? null
       },
       scalpMeta: scalp
     };
