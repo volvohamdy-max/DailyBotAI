@@ -1,11 +1,10 @@
 require('./installMassiveMarketFallback');
 
 const newYorkStrategy = require('./scalpStrategies/newYorkStrategy');
-const aggressiveBreakoutA = require('./scalpStrategies/aggressiveBreakoutA');
 const proStrategy = require('./scalpStrategies/proStrategy');
 const { getLatestRegimeDiagnostics } = require('./regimeDiagnosticsCache');
 
-const STRATEGIES = [newYorkStrategy, aggressiveBreakoutA, proStrategy];
+const STRATEGIES = [newYorkStrategy, proStrategy];
 
 function finiteOrNull(value) {
   if (value === null || value === undefined || value === '') {
