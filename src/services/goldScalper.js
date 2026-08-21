@@ -7,11 +7,20 @@ const { getLatestRegimeDiagnostics } = require('./regimeDiagnosticsCache');
 
 const STRATEGIES = [newYorkStrategy, aggressiveBreakoutA, proStrategy];
 
+function finiteOrNull(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 function firstFiniteFrom(waits, keys) {
   for (const wait of waits) {
     for (const key of keys) {
-      const value = Number(wait?.[key]);
-      if (Number.isFinite(value)) return value;
+      const value = finiteOrNull(wait?.[key]);
+      if (value !== null) return value;
     }
   }
   return null;
@@ -19,8 +28,8 @@ function firstFiniteFrom(waits, keys) {
 
 function firstFinite(...values) {
   for (const value of values) {
-    const n = Number(value);
-    if (Number.isFinite(n)) return n;
+    const n = finiteOrNull(value);
+    if (n !== null) return n;
   }
   return null;
 }
