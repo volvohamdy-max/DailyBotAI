@@ -15,27 +15,45 @@ const FEEDS = [
 const CORE_ASSETS = [
   { symbol: 'BTC', re: /\b(bitcoin|btc)\b/i },
   { symbol: 'ETH', re: /\b(ethereum|ether|eth)\b/i },
-  { symbol: 'SOL', re: /\b(solana|sol)\b/i },
+  { symbol: 'SOL', re: /\b(solana|solana network)\b/i },
   { symbol: 'XRP', re: /\b(xrp|ripple)\b/i },
   { symbol: 'BNB', re: /\b(bnb|binance coin)\b/i }
 ];
 
-const MARKET_WIDE_RE = /\b(crypto|cryptocurrency|digital asset|stablecoin|defi|blockchain)\b/i;
-const MAJOR_EVENT_RE = new RegExp([
-  'spot etf','etf approval','etf filing','etf inflow','etf outflow',
-  'sec','cftc','regulation','regulator','lawsuit','court','ban','approved','approval',
-  'hack','hacked','exploit','breach','stolen','drain','attack','vulnerability',
-  'bankrupt','bankruptcy','insolvent','insolvency','withdrawal halt','withdrawals halted',
-  'outage','trading halt','delist','delisting','listing',
-  'depeg','de-pegged','stablecoin',
-  'liquidation','liquidations',
-  'treasury','institutional','institution','whale','billion','million btc',
-  'halving','hard fork','upgrade','mainnet','network halt','network outage',
-  'binance','coinbase','kraken','bybit','okx','tether','usdt','usdc','circle',
-  'microstrategy','strategy','blackrock','fidelity','grayscale'
+// Only events with a realistic chance of moving the broad crypto market or a core asset.
+const CRITICAL_EVENT_RE = new RegExp([
+  'spot bitcoin etf','spot btc etf','spot ethereum etf','spot ether etf',
+  'etf approved','etf approval','etf rejected','etf rejection',
+  'sec approves','sec approved','sec rejects','sec rejected',
+  'bitcoin reserve','strategic bitcoin reserve','crypto reserve',
+  'government bitcoin','government btc',
+  'fed rate','federal reserve','interest rate decision','fomc',
+  'major hack','hacked','exploit','breach','stolen','drained',
+  'withdrawals halted','withdrawal halt','suspends withdrawals','suspended withdrawals',
+  'bankrupt','bankruptcy','insolvent','insolvency',
+  'depeg','de-pegged','loses peg','lost peg',
+  'network halt','network outage','blockchain halt',
+  'trading halt','trading suspended',
+  'binance hacked','coinbase hacked','bybit hacked','okx hacked','kraken hacked',
+  'tether depeg','usdt depeg','usdc depeg',
+  'binance bankruptcy','coinbase bankruptcy','bybit bankruptcy',
+  'blackrock bitcoin','blackrock btc','fidelity bitcoin','fidelity btc',
+  'strategy buys bitcoin','strategy bought bitcoin','microstrategy buys bitcoin','microstrategy bought bitcoin',
+  'billion.*bitcoin','billion.*btc','billion.*ethereum','billion.*eth',
+  'liquidations.*billion','billion.*liquidations'
 ].join('|'), 'i');
 
-const NOISE_RE = /price prediction|technical analysis|top altcoins|best crypto|presale|giveaway|sponsored|casino|memecoin to buy|price target/i;
+// Editorial/legal roundups, opinion pieces and routine company/regulatory stories must never alert.
+const NOISE_RE = new RegExp([
+  'price prediction','technical analysis','top altcoins','best crypto','presale','giveaway','sponsored','casino',
+  'memecoin to buy','price target','opinion','interview','podcast','explainer','guide','how to',
+  'this week','weekly roundup','week in review','what happened','legal news','legal roundup','in court',
+  'onchain.*court','court.*this week','lawsuit update','case update',
+  'files for','filing','seeks approval','proposal','proposes','could approve','may approve','might approve',
+  'analyst says','analysts say','trader says','traders say','expert says','experts say',
+  'whale moves','whale transfers','wallet moves','wallet transfers',
+  'listing','delisting announcement','partnership','launches','announces'
+].join('|'), 'i');
 
 function targetChatId() {
   const id = config.mainGroupId;
@@ -71,45 +89,38 @@ function parseFeed(xml, source) {
     const pubDate = tag(item, 'pubDate');
     const publishedAt = new Date(pubDate);
     if (!title) continue;
-    rows.push({
-      source,
-      title,
-      description,
-      link,
-      guid,
-      publishedAt: Number.isNaN(publishedAt.getTime()) ? null : publishedAt
-    });
+    rows.push({ source, title, description, link, guid, publishedAt: Number.isNaN(publishedAt.getTime()) ? null : publishedAt });
   }
   return rows;
 }
 
 function detectAssets(text) {
-  const assets = CORE_ASSETS.filter(x => x.re.test(text)).map(x => x.symbol);
-  return [...new Set(assets)];
+  return [...new Set(CORE_ASSETS.filter(x => x.re.test(text)).map(x => x.symbol))];
 }
 
 function classify(item) {
-  const text = `${item.title} ${item.description}`;
-  if (NOISE_RE.test(text)) return null;
+  const title = String(item.title || '');
+  const text = `${title} ${item.description || ''}`;
+
+  // Require the headline itself to carry a critical trigger. This prevents a generic article
+  // from alerting merely because its description mentions SEC/court/hack/etc.
+  if (NOISE_RE.test(title) || NOISE_RE.test(text)) return null;
+  if (!CRITICAL_EVENT_RE.test(title)) return null;
+
   const assets = detectAssets(text);
-  const marketWide = MARKET_WIDE_RE.test(text);
-  const major = MAJOR_EVENT_RE.test(text);
-  if (!major || (!assets.length && !marketWide)) return null;
 
-  let severity = 'high';
-  if (/hack|hacked|exploit|breach|stolen|drain|bankrupt|insolven|depeg|withdrawal halt|network halt|outage|trading halt|sec|cftc|etf approval|approved/i.test(text)) {
-    severity = 'critical';
-  }
+  // Broad-market events can be tagged CRYPTO only when the headline is explicitly systemic.
+  const systemic = /federal reserve|fomc|interest rate decision|strategic bitcoin reserve|crypto reserve|major hack|bankrupt|insolvent|depeg|withdrawals halted|network halt|trading halt|billion.*liquidations/i.test(title);
+  if (!assets.length && !systemic) return null;
 
-  return { assets: assets.length ? assets : ['CRYPTO'], severity };
+  return {
+    assets: assets.length ? assets : ['CRYPTO'],
+    severity: 'critical'
+  };
 }
 
 function itemHash(item) {
-  return crypto
-    .createHash('sha1')
-    .update(`${item.source}|${item.guid || item.link || item.title}`)
-    .digest('hex')
-    .slice(0, 24);
+  return crypto.createHash('sha1').update(`${item.source}|${item.guid || item.link || item.title}`).digest('hex').slice(0, 24);
 }
 
 function seen(key) {
@@ -164,23 +175,22 @@ async function cycle(bot) {
     if (seen(key)) continue;
 
     const title = await arabicTitle(item.title);
-    const icon = meta.severity === 'critical' ? '🚨' : '🟠';
     const assets = meta.assets.map(x => `#${x}`).join(' ');
-    const message = `${icon} <b>خبر مهم في سوق العملات الرقمية</b>\n\n📰 <b>${title}</b>\n\n🪙 الأصول المتأثرة: ${assets}\n🏷️ المصدر: ${item.source}\n\n⚠️ الخبر قد يرفع التذبذب بسرعة. يفضل انتظار تأكيد حركة السعر وعدم مطاردة الحركة الأولى.\n\n#CryptoNews #Bitcoin\n@Forexaitrade_bot`;
+    const message = `🚨 <b>خبر شديد الأهمية في سوق العملات الرقمية</b>\n\n📰 <b>${title}</b>\n\n🪙 الأصول المتأثرة: ${assets}\n🏷️ المصدر: ${item.source}\n\n⚠️ حدث استثنائي قد يسبب حركة قوية أو تذبذبًا حادًا. تجنب مطاردة الحركة الأولى وانتظر تأكيد السعر.\n\n#CryptoNews #Bitcoin\n@Forexaitrade_bot`;
 
     await bot.telegram.sendMessage(chatId, message, {
       parse_mode: 'HTML',
       disable_web_page_preview: true
     });
     mark(key);
-    console.log(`₿ Crypto breaking sent: ${item.title} | ${meta.assets.join(',')}`);
+    console.log(`₿ CRITICAL crypto news sent: ${item.title} | ${meta.assets.join(',')}`);
   }
 }
 
 function startCryptoNews(bot) {
   setTimeout(() => cycle(bot).catch(error => console.log('❌ Crypto news startup error:', error.message)), 20000);
   setInterval(() => cycle(bot).catch(error => console.log('❌ Crypto news cycle error:', error.message)), POLL_MS);
-  console.log(`₿ Crypto news watcher every ${Math.round(POLL_MS / 1000)}s | BTC ETH SOL XRP BNB + market-wide`);
+  console.log(`₿ Crypto news watcher every ${Math.round(POLL_MS / 1000)}s | CRITICAL ONLY | BTC ETH SOL XRP BNB + systemic market events`);
 }
 
 module.exports = { startCryptoNews, cycle };
