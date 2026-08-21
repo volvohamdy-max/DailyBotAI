@@ -102,7 +102,6 @@ function settleTrade(tradeId) {
     return null;
   }
 
-  // Never settle the same trade twice.
   const existing = db.prepare(`
     SELECT *
     FROM virtual_portfolio_trades
@@ -113,7 +112,6 @@ function settleTrade(tradeId) {
     return existing;
   }
 
-  // Read ONLY the final result calculated by performance.js.
   const trade = db.prepare(`
     SELECT
       trade_id,
@@ -133,14 +131,9 @@ function settleTrade(tradeId) {
 
   const portfolio = getPortfolio();
 
-  const balanceBefore =
-    Number(portfolio.balance);
-
-  const riskPercent =
-    Number(portfolio.risk_percent);
-
-  const realizedR =
-    Number(trade.realized_r);
+  const balanceBefore = Number(portfolio.balance);
+  const riskPercent = Number(portfolio.risk_percent);
+  const realizedR = Number(trade.realized_r);
 
   if (
     !Number.isFinite(balanceBefore) ||
@@ -152,39 +145,22 @@ function settleTrade(tradeId) {
     );
   }
 
-  // Compounding:
-  // Risk is always calculated from CURRENT balance.
-  const riskAmount =
-    balanceBefore * (riskPercent / 100);
+  const riskAmount = balanceBefore * (riskPercent / 100);
+  const profitLoss = riskAmount * realizedR;
+  const balanceAfter = Math.max(0, balanceBefore + profitLoss);
 
-  const profitLoss =
-    riskAmount * realizedR;
-
-  const balanceAfter =
-    Math.max(
-      0,
-      balanceBefore + profitLoss
-    );
-
-  const peakBefore =
-    Number(portfolio.peak_balance);
-
-  const peakAfter =
-    Math.max(
-      peakBefore,
-      balanceAfter
-    );
+  const peakBefore = Number(portfolio.peak_balance);
+  const peakAfter = Math.max(peakBefore, balanceAfter);
 
   const drawdown =
     peakAfter > 0
       ? ((peakAfter - balanceAfter) / peakAfter) * 100
       : 0;
 
-  const maxDrawdown =
-    Math.max(
-      Number(portfolio.max_drawdown_percent || 0),
-      drawdown
-    );
+  const maxDrawdown = Math.max(
+    Number(portfolio.max_drawdown_percent || 0),
+    drawdown
+  );
 
   db.prepare(`
     INSERT INTO virtual_portfolio_trades
@@ -271,7 +247,6 @@ function syncClosedTrades() {
       ORDER BY COALESCE(p.closed_at, p.opened_at, p.created_at) ASC, p.trade_id ASC
     `).all();
   } catch (error) {
-    // trade_performance may not exist yet during isolated startup/tests.
     return { synced: 0, failed: 0 };
   }
 
@@ -303,11 +278,7 @@ function syncClosedTrades() {
 function getRecentTrades(limit = 5) {
   ensureTables();
 
-  const safeLimit =
-    Math.max(
-      1,
-      Math.min(20, Number(limit) || 5)
-    );
+  const safeLimit = Math.max(1, Math.min(20, Number(limit) || 5));
 
   return db.prepare(`
     SELECT *
@@ -317,21 +288,131 @@ function getRecentTrades(limit = 5) {
   `).all(safeLimit);
 }
 
+function strategyInfo(telegramId) {
+  const source = String(telegramId || '').toUpperCase();
+
+  if (source === 'VIP_REGIME') {
+    return { key: 'REGIME', label: '🧭 Regime', current: true };
+  }
+  if (source === 'VIP_SCALP_NEW_YORK') {
+    return { key: 'NEW_YORK', label: '🗽 New York', current: true };
+  }
+  if (source === 'VIP_SCALP_AGGRESSIVE_BREAKOUT_A') {
+    return { key: 'BREAKOUT_A', label: '🔥 Breakout-A', current: true };
+  }
+  if (source === 'VIP_SCALP_PRO_STRATEGY') {
+    return { key: 'PRO_STRATEGY', label: '⭐ Pro Strategy', current: true };
+  }
+
+  return { key: 'LEGACY_OTHER', label: '🗃️ Legacy / Other', current: false };
+}
+
+function maxDrawdownR(rows) {
+  let equity = 0;
+  let peak = 0;
+  let maxDd = 0;
+
+  for (const row of rows) {
+    const r = Number(row.realized_r);
+    if (!Number.isFinite(r)) continue;
+
+    equity += r;
+    peak = Math.max(peak, equity);
+    maxDd = Math.max(maxDd, peak - equity);
+  }
+
+  return Number(maxDd.toFixed(3));
+}
+
+function getStrategyStats() {
+  ensureTables();
+
+  let rows = [];
+  try {
+    rows = db.prepare(`
+      SELECT
+        v.trade_id,
+        v.realized_r,
+        v.profit_loss,
+        v.outcome,
+        v.settled_at,
+        p.telegram_id
+      FROM virtual_portfolio_trades v
+      LEFT JOIN trade_performance p
+        ON p.trade_id = v.trade_id
+      ORDER BY v.id ASC
+    `).all();
+  } catch (_) {
+    return [];
+  }
+
+  const grouped = new Map();
+
+  for (const row of rows) {
+    const info = strategyInfo(row.telegram_id);
+
+    if (!grouped.has(info.key)) {
+      grouped.set(info.key, {
+        ...info,
+        rows: [],
+        total: 0,
+        wins: 0,
+        losses: 0,
+        breakeven: 0,
+        netR: 0,
+        profit: 0
+      });
+    }
+
+    const item = grouped.get(info.key);
+    const r = Number(row.realized_r);
+    const pnl = Number(row.profit_loss);
+
+    item.rows.push(row);
+    item.total += 1;
+
+    if (Number.isFinite(pnl)) {
+      if (pnl > 0) item.wins += 1;
+      else if (pnl < 0) item.losses += 1;
+      else item.breakeven += 1;
+      item.profit += pnl;
+    }
+
+    if (Number.isFinite(r)) {
+      item.netR += r;
+    }
+  }
+
+  return [...grouped.values()]
+    .map(item => ({
+      key: item.key,
+      label: item.label,
+      current: item.current,
+      total: item.total,
+      wins: item.wins,
+      losses: item.losses,
+      breakeven: item.breakeven,
+      winRate: item.total
+        ? (item.wins / item.total) * 100
+        : 0,
+      netR: Number(item.netR.toFixed(3)),
+      profit: Number(item.profit.toFixed(2)),
+      maxDrawdownR: maxDrawdownR(item.rows)
+    }))
+    .sort((a, b) => {
+      if (a.current !== b.current) return a.current ? -1 : 1;
+      return b.profit - a.profit;
+    });
+}
+
 function getStats() {
-  // Self-healing sync: every portfolio read imports any closed performance
-  // trades that were never settled. This also backfills historical rows.
   syncClosedTrades();
 
   const p = getPortfolio();
 
-  const starting =
-    Number(p.starting_balance);
-
-  const balance =
-    Number(p.balance);
-
-  const netProfit =
-    balance - starting;
+  const starting = Number(p.starting_balance);
+  const balance = Number(p.balance);
+  const netProfit = balance - starting;
 
   const returnPercent =
     starting > 0
@@ -344,7 +425,8 @@ function getStats() {
     balance,
     net_profit: netProfit,
     return_percent: returnPercent,
-    recent: getRecentTrades(5)
+    recent: getRecentTrades(5),
+    by_strategy: getStrategyStats()
   };
 }
 
@@ -354,5 +436,6 @@ module.exports = {
   syncClosedTrades,
   getPortfolio,
   getRecentTrades,
+  getStrategyStats,
   getStats
 };
