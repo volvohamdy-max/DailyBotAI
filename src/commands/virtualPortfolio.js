@@ -8,14 +8,41 @@ function money(n) {
 
 function signedMoney(n) {
   const x = Number(n || 0);
-
   return `${x >= 0 ? '+' : '-'}$${Math.abs(x).toFixed(2)}`;
 }
 
 function signedPercent(n) {
   const x = Number(n || 0);
-
   return `${x >= 0 ? '+' : ''}${x.toFixed(2)}%`;
+}
+
+function signedR(n) {
+  const x = Number(n || 0);
+  return `${x >= 0 ? '+' : ''}${x.toFixed(2)}R`;
+}
+
+function strategySection(rows, current) {
+  const filtered = (rows || []).filter(x => Boolean(x.current) === current);
+
+  if (!filtered.length) {
+    return current
+      ? 'لا توجد صفقات للاستراتيجيات الحالية حتى الآن.'
+      : 'لا توجد صفقات Legacy / Other.';
+  }
+
+  return filtered.map(x => {
+    const icon = Number(x.profit) > 0
+      ? '🟢'
+      : Number(x.profit) < 0
+        ? '🔴'
+        : '⚪';
+
+    return `${icon} ${x.label}\n` +
+      `صفقات: ${x.total} | W ${x.wins} / L ${x.losses} / BE ${x.breakeven}\n` +
+      `Win Rate: ${Number(x.winRate).toFixed(1)}%\n` +
+      `Net: ${signedR(x.netR)} | ${signedMoney(x.profit)}\n` +
+      `Max DD: -${Number(x.maxDrawdownR || 0).toFixed(2)}R`;
+  }).join('\n\n');
 }
 
 function portfolioText() {
@@ -39,6 +66,9 @@ function portfolioText() {
         }).join('\n')
       : 'لا توجد صفقات مغلقة في المحفظة حتى الآن.';
 
+  const currentStrategies = strategySection(s.by_strategy, true);
+  const legacyStrategies = strategySection(s.by_strategy, false);
+
   return `💼 FOREX AI — VIRTUAL PORTFOLIO
 ━━━━━━━━━━━━━━━━━━
 
@@ -57,7 +87,7 @@ ${signedPercent(s.return_percent)}
 ⚖️ المخاطرة لكل صفقة:
 ${money(s.risk_percent)}%
 
-📉 أقصى تراجع:
+📉 أقصى تراجع للمحفظة:
 -${money(s.max_drawdown_percent)}%
 
 ━━━━━━━━━━━━━━━━━━
@@ -68,11 +98,25 @@ ${money(s.risk_percent)}%
 ⚪ تعادل: ${s.breakeven_trades}
 
 ━━━━━━━━━━━━━━━━━━
+🚀 CURRENT STRATEGIES
+
+${currentStrategies}
+
+━━━━━━━━━━━━━━━━━━
+🗃️ LEGACY / OTHER
+
+${legacyStrategies}
+
+━━━━━━━━━━━━━━━━━━
 🕘 آخر الصفقات
 
 ${recent}
 
 ━━━━━━━━━━━━━━━━━━
+ℹ️ Current = الاستراتيجيات الحالية المعروفة في البوت.
+Legacy / Other = مصادر قديمة أو عامة لا ننسبها لاستراتيجية حالية.
+Max DD لكل استراتيجية معروض بوحدة R لتجنب خلطه بتأثير الـcompounding العام.
+
 🧪 محفظة تداول افتراضية.
 لا تمثل أموالًا حقيقية أو ضمانًا لنتائج التداول الفعلي.`;
 }
