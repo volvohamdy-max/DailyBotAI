@@ -6,6 +6,14 @@ const {
   addShadowTrade
 } = require('../database/shadowTrades');
 
+const {
+  getCandles
+} = require('./marketService');
+
+const {
+  calculateTradeLevels
+} = require('./tradeEngine');
+
 
 function n(value) {
   const x = Number(value);
@@ -92,6 +100,54 @@ function validLevels(
 }
 
 
+async function resolveShadowLevels(row, action) {
+  const direct = getLevels(row);
+
+  if (validLevels(action, direct)) {
+    return direct;
+  }
+
+  try {
+    const candles = await getCandles(
+      String(row.pair || '').toUpperCase(),
+      '15min'
+    );
+
+    const calculated = calculateTradeLevels(
+      candles,
+      action,
+      row.pair
+    );
+
+    if (!calculated) {
+      return direct;
+    }
+
+    const generated = {
+      entry: n(calculated.entry),
+      sl: n(calculated.sl),
+      tp1: n(calculated.tp1),
+      tp2: n(calculated.tp2)
+    };
+
+    if (validLevels(action, generated)) {
+      console.log(
+        `👻 Shadow levels generated | ${row.pair} ${action} | source=tradeEngine`
+      );
+      return generated;
+    }
+
+  } catch (error) {
+    console.log(
+      `👻 Shadow level generation failed ${row.pair}:`,
+      error.message
+    );
+  }
+
+  return direct;
+}
+
+
 async function collectShadowOpportunities() {
   const rows =
     await buildOpportunityRadar();
@@ -103,6 +159,10 @@ async function collectShadowOpportunities() {
     /*
      * Shadow = interesting opportunity that
      * has NOT reached full 6/6 confirmation.
+     *
+     * IMPORTANT:
+     * This does not change any live strategy decision.
+     * It only creates a virtual observation trade.
      */
     if (
       row.passed < 4 ||
@@ -126,7 +186,10 @@ async function collectShadowOpportunities() {
 
 
     const levels =
-      getLevels(row);
+      await resolveShadowLevels(
+        row,
+        action
+      );
 
 
     if (
@@ -136,7 +199,7 @@ async function collectShadowOpportunities() {
       )
     ) {
       console.log(
-        `👻 Shadow skipped ${row.pair}: no valid trade levels`
+        `👻 Shadow skipped ${row.pair}: unable to build valid observation levels`
       );
 
       continue;
@@ -203,7 +266,8 @@ async function collectShadowOpportunities() {
       created += 1;
 
       console.log(
-        `👻 Shadow created | ${row.pair} ${action} | ${row.passed}/${row.total}`
+        `👻 Shadow created | ${row.pair} ${action} | ${row.passed}/${row.total} | ` +
+        `entry=${levels.entry} sl=${levels.sl} tp1=${levels.tp1} tp2=${levels.tp2}`
       );
     }
   }
@@ -214,5 +278,6 @@ async function collectShadowOpportunities() {
 
 
 module.exports = {
-  collectShadowOpportunities
+  collectShadowOpportunities,
+  resolveShadowLevels
 };
