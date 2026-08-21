@@ -4,6 +4,7 @@ const {
   getOpenTrades,
   updateTradeStatus
 } = require('../database/trades');
+const { saveTradeFeatures } = require('../database/adaptiveIntelligence');
 const config = require('../config');
 const { setLatestRegimeDiagnostics } = require('./regimeDiagnosticsCache');
 
@@ -45,6 +46,19 @@ async function scanGoldRegimeSignals(bot) {
     const tradeId = Number(insert?.lastInsertRowid || 0);
     if (!tradeId) {
       throw new Error('Failed to save GOLD REGIME trade');
+    }
+
+    try {
+      saveTradeFeatures({
+        tradeId,
+        pair: 'XAUUSD',
+        action: result.signal.action,
+        indicators: result.indicators || {},
+        scalpMeta: meta || {}
+      });
+      console.log(`🧠 Adaptive snapshot saved | GOLD REGIME Trade ${tradeId}`);
+    } catch (adaptiveError) {
+      console.log('⚠️ GOLD REGIME adaptive snapshot failed:', adaptiveError.message);
     }
 
     const aiText = Number(meta.aiConfidence) > 0
