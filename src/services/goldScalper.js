@@ -3,6 +3,7 @@ require('./installMassiveMarketFallback');
 const newYorkStrategy = require('./scalpStrategies/newYorkStrategy');
 const aggressiveBreakoutA = require('./scalpStrategies/aggressiveBreakoutA');
 const proStrategy = require('./scalpStrategies/proStrategy');
+const { getLatestRegimeDiagnostics } = require('./regimeDiagnosticsCache');
 
 const STRATEGIES = [newYorkStrategy, aggressiveBreakoutA, proStrategy];
 
@@ -14,6 +15,30 @@ function firstFiniteFrom(waits, keys) {
     }
   }
   return null;
+}
+
+function firstFinite(...values) {
+  for (const value of values) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function regimeDiagnosticFallback() {
+  const latest = getLatestRegimeDiagnostics();
+  if (!latest) return {};
+
+  const meta = latest.regimeMeta || {};
+  const indicators = latest.indicators || {};
+
+  return {
+    atr5: firstFinite(meta.atr5, meta.atr, indicators.atr),
+    rsi5: firstFinite(meta.rsi5, indicators.rsi),
+    adx5: firstFinite(meta.adx5, meta.adx15, indicators.adx),
+    vwap5: firstFinite(meta.vwap5, meta.vwap, indicators.vwap),
+    ema20: firstFinite(meta.ema20, indicators.ema20)
+  };
 }
 
 async function scanGoldScalp() {
@@ -61,26 +86,35 @@ async function scanGoldScalp() {
       pair: 'XAUUSD'
     };
 
-  // Preserve the original wait/strategy selection exactly as before, while
-  // carrying forward indicator values calculated by any strategy in the same
-  // scan. This fixes null diagnostics without changing entry logic.
+  const regimeFallback = regimeDiagnosticFallback();
+
   return {
     ...primaryWait,
-    atr5: Number.isFinite(Number(primaryWait?.atr5))
-      ? Number(primaryWait.atr5)
-      : firstFiniteFrom(waits, ['atr5', 'atr']),
-    rsi5: Number.isFinite(Number(primaryWait?.rsi5))
-      ? Number(primaryWait.rsi5)
-      : firstFiniteFrom(waits, ['rsi5', 'rsi']),
-    adx5: Number.isFinite(Number(primaryWait?.adx5))
-      ? Number(primaryWait.adx5)
-      : firstFiniteFrom(waits, ['adx5', 'adx']),
-    vwap5: Number.isFinite(Number(primaryWait?.vwap5))
-      ? Number(primaryWait.vwap5)
-      : firstFiniteFrom(waits, ['vwap5', 'vwap']),
-    ema20: Number.isFinite(Number(primaryWait?.ema20))
-      ? Number(primaryWait.ema20)
-      : firstFiniteFrom(waits, ['ema20'])
+    atr5: firstFinite(
+      primaryWait?.atr5,
+      firstFiniteFrom(waits, ['atr5', 'atr']),
+      regimeFallback.atr5
+    ),
+    rsi5: firstFinite(
+      primaryWait?.rsi5,
+      firstFiniteFrom(waits, ['rsi5', 'rsi']),
+      regimeFallback.rsi5
+    ),
+    adx5: firstFinite(
+      primaryWait?.adx5,
+      firstFiniteFrom(waits, ['adx5', 'adx']),
+      regimeFallback.adx5
+    ),
+    vwap5: firstFinite(
+      primaryWait?.vwap5,
+      firstFiniteFrom(waits, ['vwap5', 'vwap']),
+      regimeFallback.vwap5
+    ),
+    ema20: firstFinite(
+      primaryWait?.ema20,
+      firstFiniteFrom(waits, ['ema20']),
+      regimeFallback.ema20
+    )
   };
 }
 
