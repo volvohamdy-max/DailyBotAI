@@ -5,10 +5,12 @@ const {
   updateTradeStatus
 } = require('../database/trades');
 const config = require('../config');
+const { setLatestRegimeDiagnostics } = require('./regimeDiagnosticsCache');
 
 async function scanGoldRegimeSignals(bot) {
   try {
     const result = await buildGoldRegimeResult();
+    setLatestRegimeDiagnostics(result);
 
     if (!result?.signal || !result?.regimeMeta?.ready) {
       return result;
@@ -88,8 +90,6 @@ TP2 → 1:${Number(meta.rrTp2).toFixed(2)}
     try {
       await bot.telegram.sendMessage(config.vipChannelId, msg);
     } catch (sendError) {
-      // Never keep an unsent VIP signal open in the DB.
-      // Otherwise tradeMonitor may later publish TP/SL for a trade users never received.
       try {
         updateTradeStatus(tradeId, 'closed');
       } catch (rollbackError) {
@@ -117,7 +117,7 @@ TP2 → 1:${Number(meta.rrTp2).toFixed(2)}
     return { ...result, sent: true, tradeId };
   } catch (error) {
     console.log('❌ GOLD REGIME scan error:', error.message);
-    return {
+    const fallback = {
       pair: 'XAUUSD',
       signal: null,
       regimeMeta: {
@@ -126,6 +126,8 @@ TP2 → 1:${Number(meta.rrTp2).toFixed(2)}
         error: error.message
       }
     };
+    setLatestRegimeDiagnostics(fallback);
+    return fallback;
   }
 }
 
