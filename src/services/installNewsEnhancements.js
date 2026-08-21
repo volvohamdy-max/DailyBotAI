@@ -5,6 +5,12 @@ const newsProviders = require('./newsProviders');
 const IMPORTANT = new Set(['USD','EUR','GBP','JPY','CHF']);
 const FF_URL = process.env.FOREX_FACTORY_CALENDAR_URL || 'https://nfs.faireconomy.media/ff_calendar_thisweek.json';
 const TIMEOUT = Number(process.env.NEWS_PROVIDER_TIMEOUT_MS) || 15000;
+const FF_CACHE_MS = Number(process.env.FOREX_FACTORY_CACHE_MS) || 15 * 60 * 1000;
+const FF_RETRY_AFTER_429_MS = Number(process.env.FOREX_FACTORY_429_COOLDOWN_MS) || 30 * 60 * 1000;
+
+let ffCache = [];
+let ffCacheAt = 0;
+let ffBlockedUntil = 0;
 
 function safeDate(value) {
   if (!value) return null;
@@ -41,7 +47,21 @@ function normalizeForexFactory(row) {
   };
 }
 
-async function fetchForexFactoryWeek() {
+async function fetchForexFactoryWeek(force = false) {
+  const now = Date.now();
+
+  if (!force && ffCache.length && now - ffCacheAt < FF_CACHE_MS) {
+    return ffCache;
+  }
+
+  if (now < ffBlockedUntil) {
+    if (ffCache.length) {
+      console.log(`🗓️ ForexFactory cooldown active | using cached ${ffCache.length} event(s)`);
+      return ffCache;
+    }
+    return [];
+  }
+
   try {
     const { data } = await axios.get(FF_URL, {
       timeout: TIMEOUT,
@@ -52,10 +72,30 @@ async function fetchForexFactoryWeek() {
     });
     const rows = Array.isArray(data) ? data : [];
     const events = rows.map(normalizeForexFactory).filter(Boolean);
+
+    ffCache = events;
+    ffCacheAt = now;
+    ffBlockedUntil = 0;
+
     console.log(`🗓️ ForexFactory public calendar: ${events.length} event(s)`);
     return events;
   } catch (error) {
-    console.log('⚠️ ForexFactory public calendar failed:', error.response?.status || '', error.message);
+    const status = Number(error.response?.status || 0);
+
+    if (status === 429) {
+      ffBlockedUntil = Date.now() + FF_RETRY_AFTER_429_MS;
+      console.log(
+        `⚠️ ForexFactory public calendar rate limited: 429 | cooldown=${Math.round(FF_RETRY_AFTER_429_MS / 60000)}m`
+      );
+    } else {
+      console.log('⚠️ ForexFactory public calendar failed:', error.response?.status || '', error.message);
+    }
+
+    if (ffCache.length) {
+      console.log(`🗓️ ForexFactory stale-cache fallback: ${ffCache.length} event(s)`);
+      return ffCache;
+    }
+
     return [];
   }
 }
@@ -150,12 +190,13 @@ if (!newsCalendarGate.__enhancedCalendarInstalled) {
   newsCalendarGate.getMultiSourceCalendar = async function enhancedCalendar(forceRefresh = false) {
     if (!forceRefresh && cache && Date.now() - cacheAt < CACHE_MS) return cache;
 
-    // Bypass newsCalendarGate's short cache on forced post-release refresh.
+    // Force-refresh live/official sources for post-release Actual updates,
+    // but do NOT hammer ForexFactory's weekly public file every minute.
     const base = forceRefresh
       ? await newsProviders.getMultiSourceCalendar(true)
       : await nativeGet();
 
-    const ff = await fetchForexFactoryWeek();
+    const ff = await fetchForexFactoryWeek(false);
     const minutes = fomcMinutesSchedule();
     cache = {
       ...base,
