@@ -17,7 +17,8 @@ const CONFIG = {
   adxMin: 15,
   atrPeriod: 14,
   atrAverageLookback: 50,
-  atrRatioMax: 1.15
+  atrRatioMax: 1.15,
+  minBodyRange: 0.50
 };
 
 const STATE = {
@@ -415,6 +416,42 @@ async function scan() {
     };
   }
 
+  const signalCandle = c5.at(-1);
+  const signalOpen = finite(signalCandle?.open);
+  const signalHigh = finite(signalCandle?.high);
+  const signalLow = finite(signalCandle?.low);
+  const signalClose = finite(signalCandle?.close);
+
+  if ([signalOpen, signalHigh, signalLow, signalClose].some(v => !Number.isFinite(v))) {
+    return {
+      ready: false,
+      status: 'PRO_CANDLE_NOT_READY',
+      pair: CONFIG.pair,
+      strategyId: CONFIG.id,
+      strategyLabel: CONFIG.label
+    };
+  }
+
+  const signalRange = signalHigh - signalLow;
+  const signalBody = Math.abs(signalClose - signalOpen);
+  const bodyRange = signalRange > 0 ? signalBody / signalRange : 0;
+
+  if (bodyRange < CONFIG.minBodyRange) {
+    return {
+      ready: false,
+      status: 'PRO_BODY_TOO_WEAK',
+      pair: CONFIG.pair,
+      strategyId: CONFIG.id,
+      strategyLabel: CONFIG.label,
+      bodyRange,
+      minBodyRange: CONFIG.minBodyRange,
+      rsi5: currentRsi,
+      adx5: currentAdx,
+      atrRatio,
+      dailyBias: bias
+    };
+  }
+
   const entry = finite(livePrice) ?? finite(raw5.at(-1)?.close);
   if (!Number.isFinite(entry)) {
     return { ready: false, status: 'PRO_PRICE_NOT_READY', pair: CONFIG.pair, strategyId: CONFIG.id, strategyLabel: CONFIG.label };
@@ -436,7 +473,7 @@ async function scan() {
     direction: side,
     strategyId: CONFIG.id,
     strategyLabel: `${CONFIG.label} | خروج RSI فقط 37/63`,
-    entryMode: 'RSI_REVERSAL_D1_EMA50_ADX_ATR',
+    entryMode: 'RSI_REVERSAL_D1_EMA50_ADX_ATR_BODY50',
     grade: 'A',
     score: 79,
     aiConfidence: 0,
@@ -454,6 +491,7 @@ async function scan() {
     atrRatio,
     adx5: currentAdx,
     rsi5: currentRsi,
+    bodyRange,
     dailyBias: bias,
     exitRule: side === 'BUY' ? 'RSI >= 63' : 'RSI <= 37',
     reasons: [
@@ -461,6 +499,7 @@ async function scan() {
       'Daily EMA50 directional filter',
       `ADX(14) >= ${CONFIG.adxMin}`,
       `ATR(14) / 50-bar ATR average <= ${CONFIG.atrRatioMax}`,
+      `Signal candle Body/Range >= ${CONFIG.minBodyRange * 100}%`,
       `Cooldown after loss: ${CONFIG.cooldownMinutes} minutes`,
       'Max 2 losses per UTC day',
       '15:00-16:59 UTC blocked',
