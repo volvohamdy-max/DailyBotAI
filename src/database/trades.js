@@ -1,5 +1,95 @@
 const db = require('./db');
 
+const PORTFOLIO_MAX_OPEN_GOLD = 2;
+
+function normalizeSource(value) {
+    return String(value || '').toUpperCase();
+}
+
+function isManagedStrategySource(source) {
+    const s = normalizeSource(source);
+
+    return (
+        s.startsWith('VIP_SCALP_') ||
+        s === 'VIP_REGIME' ||
+        s === 'VIP_H4_MR'
+    );
+}
+
+function getManagedOpenTrades() {
+    return db.prepare(`
+        SELECT *
+        FROM trades
+        WHERE pair = 'XAUUSD'
+          AND status IN ('open', 'secured', 'target1')
+          AND (
+            UPPER(telegram_id) LIKE 'VIP_SCALP_%'
+            OR UPPER(telegram_id) = 'VIP_REGIME'
+            OR UPPER(telegram_id) = 'VIP_H4_MR'
+          )
+        ORDER BY id DESC
+    `).all();
+}
+
+function evaluateGoldPortfolioEntry(data) {
+    const source = normalizeSource(data?.telegram_id);
+    const action = String(data?.action || '').toUpperCase();
+
+    if (!isManagedStrategySource(source)) {
+        return {
+            allowed: true,
+            managed: false,
+            reason: 'UNMANAGED_SOURCE'
+        };
+    }
+
+    if (!['BUY', 'SELL'].includes(action)) {
+        return {
+            allowed: false,
+            managed: true,
+            reason: 'INVALID_DIRECTION'
+        };
+    }
+
+    const open = getManagedOpenTrades();
+
+    if (open.length >= PORTFOLIO_MAX_OPEN_GOLD) {
+        return {
+            allowed: false,
+            managed: true,
+            reason: 'MAX_OPEN_GOLD_REACHED',
+            openCount: open.length,
+            maxOpen: PORTFOLIO_MAX_OPEN_GOLD,
+            openTrades: open
+        };
+    }
+
+    const opposite = open.find((trade) => {
+        const openAction = String(trade.action || '').toUpperCase();
+        return ['BUY', 'SELL'].includes(openAction) && openAction !== action;
+    });
+
+    if (opposite) {
+        return {
+            allowed: false,
+            managed: true,
+            reason: 'OPPOSITE_DIRECTION_OPEN',
+            openCount: open.length,
+            conflictingTradeId: opposite.id,
+            conflictingSource: opposite.telegram_id,
+            conflictingDirection: opposite.action
+        };
+    }
+
+    return {
+        allowed: true,
+        managed: true,
+        reason: 'PORTFOLIO_OK',
+        openCount: open.length,
+        remainingSlots: PORTFOLIO_MAX_OPEN_GOLD - open.length
+    };
+}
+
 function addTrade(data) {
 
     // الذهب فقط
@@ -8,6 +98,36 @@ function addTrade(data) {
             `⚠️ Skipped non-gold trade: ${data.pair}`
         );
         return null;
+    }
+
+    const portfolio = evaluateGoldPortfolioEntry(data);
+
+    if (!portfolio.allowed) {
+        console.log(
+            `🛡️ GOLD PORTFOLIO BLOCKED | ` +
+            `source=${normalizeSource(data.telegram_id)} | ` +
+            `direction=${String(data.action || '').toUpperCase()} | ` +
+            `reason=${portfolio.reason} | ` +
+            `open=${portfolio.openCount ?? 'n/a'}/${PORTFOLIO_MAX_OPEN_GOLD}`
+        );
+
+        if (portfolio.conflictingTradeId) {
+            console.log(
+                `↔️ Conflict Trade #${portfolio.conflictingTradeId} | ` +
+                `${portfolio.conflictingSource} | ${portfolio.conflictingDirection}`
+            );
+        }
+
+        return null;
+    }
+
+    if (portfolio.managed) {
+        console.log(
+            `✅ GOLD PORTFOLIO OK | ` +
+            `source=${normalizeSource(data.telegram_id)} | ` +
+            `direction=${String(data.action || '').toUpperCase()} | ` +
+            `open=${portfolio.openCount}/${PORTFOLIO_MAX_OPEN_GOLD}`
+        );
     }
 
     return db.prepare(`
@@ -60,6 +180,8 @@ function closeAllOpenTrades() {
 module.exports = {
     addTrade,
     getOpenTrades,
+    getManagedOpenTrades,
+    evaluateGoldPortfolioEntry,
     updateTradeStatus,
     markTradeAsFree,
     deleteNonGoldTrades,
