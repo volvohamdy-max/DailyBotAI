@@ -12,7 +12,8 @@ function isManagedStrategySource(source) {
     return (
         s.startsWith('VIP_SCALP_') ||
         s === 'VIP_REGIME' ||
-        s === 'VIP_H4_MR'
+        s === 'VIP_H4_MR' ||
+        s === 'VIP_FREE'
     );
 }
 
@@ -26,6 +27,7 @@ function getManagedOpenTrades() {
             UPPER(telegram_id) LIKE 'VIP_SCALP_%'
             OR UPPER(telegram_id) = 'VIP_REGIME'
             OR UPPER(telegram_id) = 'VIP_H4_MR'
+            OR UPPER(telegram_id) = 'VIP_FREE'
           )
         ORDER BY id DESC
     `).all();
