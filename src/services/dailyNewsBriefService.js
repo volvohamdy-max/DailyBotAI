@@ -292,15 +292,15 @@ function startDailyNewsBrief(bot) {
   setTimeout(() => {
     const p = cairoParts();
     const hour = Number(p.hour);
-    if (hour >= 8 && hour < 12) {
+    if (hour >= 8) {
       sendDailyNewsBrief(bot).catch((error) =>
-        console.log('❌ Morning brief catch-up error:', error.message)
+        console.log('❌ Daily brief catch-up error:', error.message)
       );
     }
   }, 12000);
 
   console.log(
-    '📌 Daily economic brief scheduled 08:00 Africa/Cairo + live pinned updates'
+    '📌 Daily economic brief scheduled 08:00 Africa/Cairo + all-day catch-up + live pinned updates'
   );
 }
 
