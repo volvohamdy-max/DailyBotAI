@@ -1,4 +1,5 @@
 const { buildGoldRegimeResult } = require('./goldRegimeStrategy');
+const { scanGoldH4MeanReversion } = require('./goldH4MeanReversion');
 const {
   addTrade,
   getOpenTrades,
@@ -10,6 +11,15 @@ const { setLatestRegimeDiagnostics } = require('./regimeDiagnosticsCache');
 
 async function scanGoldRegimeSignals(bot) {
   try {
+    // Independent H4 Mean-Reversion path.
+    // It is scheduled from here only to reuse the existing gold scanner cycle;
+    // it does not pass through scalp grades, scalp score or 5M entry logic.
+    try {
+      await scanGoldH4MeanReversion(bot);
+    } catch (h4Error) {
+      console.log('❌ GOLD H4 MR independent scan failed:', h4Error.message);
+    }
+
     const result = await buildGoldRegimeResult();
     setLatestRegimeDiagnostics(result);
 
