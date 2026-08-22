@@ -92,6 +92,7 @@ async function monitorTrades(bot) {
 
             const tradeSource = String(trade.telegram_id || '').toUpperCase();
             const isProTrade = tradeSource === 'VIP_SCALP_PRO_STRATEGY';
+            const isGrok92Trade = tradeSource === 'VIP_SCALP_GROK_GOLD_92';
 
             // ==================================================
             // PRO STRATEGY — dedicated exit management
@@ -160,8 +161,10 @@ async function monitorTrades(bot) {
 
                 // =========================
                 // SECURE ENTRY - BUY
+                // GROK_GOLD_92 is intentionally NO-BE to match validated backtest.
                 // =========================
                 else if (
+                    !isGrok92Trade &&
                     trade.status === 'open' &&
                     trade.target1 != null &&
                     Number.isFinite(Number(trade.entry)) &&
@@ -191,6 +194,7 @@ async function monitorTrades(bot) {
                 // BREAKEVEN - BUY
                 // =========================
                 else if (
+                    !isGrok92Trade &&
                     trade.status === 'secured' &&
                     Number.isFinite(Number(trade.entry)) &&
                     price <= Number(trade.entry)
@@ -244,8 +248,10 @@ async function monitorTrades(bot) {
 
                 // =========================
                 // SECURE ENTRY - SELL
+                // GROK_GOLD_92 is intentionally NO-BE to match validated backtest.
                 // =========================
                 else if (
+                    !isGrok92Trade &&
                     trade.status === 'open' &&
                     trade.target1 != null &&
                     Number.isFinite(Number(trade.entry)) &&
@@ -275,6 +281,7 @@ async function monitorTrades(bot) {
                 // BREAKEVEN - SELL
                 // =========================
                 else if (
+                    !isGrok92Trade &&
                     trade.status === 'secured' &&
                     Number.isFinite(Number(trade.entry)) &&
                     price >= Number(trade.entry)
@@ -316,11 +323,13 @@ async function monitorTrades(bot) {
                     ? '🧭 GOLD REGIME'
                     : tradeSource === 'VIP_POWER'
                         ? '🏆 GOLD POWER'
-                        : tradeSource === 'VIP_SCALP_NEW_YORK'
-                            ? '🗽 NEW YORK SCALP'
-                            : tradeSource === 'VIP_SCALP_PRO_STRATEGY'
-                                ? '⭐ PRO STRATEGY'
-                                : '⚡ GOLD SCALP';
+                        : tradeSource === 'VIP_SCALP_GROK_GOLD_92'
+                            ? '⚡ GROK GOLD 92'
+                            : tradeSource === 'VIP_SCALP_NEW_YORK'
+                                ? '🗽 NEW YORK SCALP'
+                                : tradeSource === 'VIP_SCALP_PRO_STRATEGY'
+                                    ? '⭐ PRO STRATEGY'
+                                    : '⚡ GOLD SCALP';
 
                 message = `${strategyLabel}\n━━━━━━━━━━━━━━━━━━\n\n${message}`;
 
