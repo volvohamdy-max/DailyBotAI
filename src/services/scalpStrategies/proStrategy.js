@@ -9,10 +9,15 @@ const CONFIG = {
   buyLevel: 37,
   sellLevel: 63,
   stopDistance: 10,
-  cooldownMinutes: 40,
+  cooldownMinutes: 180,
   maxLossesPerDay: 2,
   blockedUtcHours: new Set([1, 2, 3, 4, 5, 15, 16, 21, 22, 23]),
-  dailyEmaPeriod: 50
+  dailyEmaPeriod: 50,
+  adxPeriod: 14,
+  adxMin: 15,
+  atrPeriod: 14,
+  atrAverageLookback: 50,
+  atrRatioMax: 1.15
 };
 
 const STATE = {
@@ -97,18 +102,115 @@ function rsiSeries(values, period = 14) {
   return out;
 }
 
-function atr(rows, period = 14) {
-  if (!Array.isArray(rows) || rows.length < period + 1) return null;
-  const sample = rows.slice(-(period + 1));
-  let sum = 0;
-  for (let i = 1; i < sample.length; i++) {
-    const h = finite(sample[i].high);
-    const l = finite(sample[i].low);
-    const pc = finite(sample[i - 1].close);
-    if ([h, l, pc].some(x => x == null)) return null;
-    sum += Math.max(h - l, Math.abs(h - pc), Math.abs(l - pc));
+function atrSeries(rows, period = 14) {
+  const out = Array(rows.length).fill(null);
+
+  for (let i = period; i < rows.length; i++) {
+    let sum = 0;
+
+    for (let j = i - period + 1; j <= i; j++) {
+      const h = finite(rows[j]?.high);
+      const l = finite(rows[j]?.low);
+      const pc = finite(rows[j - 1]?.close ?? rows[j]?.close);
+      if ([h, l, pc].some(x => x == null)) {
+        sum = NaN;
+        break;
+      }
+
+      sum += Math.max(
+        h - l,
+        Math.abs(h - pc),
+        Math.abs(l - pc)
+      );
+    }
+
+    if (Number.isFinite(sum)) out[i] = sum / period;
   }
-  return sum / period;
+
+  return out;
+}
+
+function atr(rows, period = 14) {
+  const series = atrSeries(rows, period);
+  return finite(series.at(-1));
+}
+
+function adxSeries(rows, period = 14) {
+  const out = Array(rows.length).fill(null);
+  const tr = Array(rows.length).fill(0);
+  const pdm = Array(rows.length).fill(0);
+  const mdm = Array(rows.length).fill(0);
+
+  for (let i = 1; i < rows.length; i++) {
+    const high = finite(rows[i]?.high);
+    const low = finite(rows[i]?.low);
+    const prevHigh = finite(rows[i - 1]?.high);
+    const prevLow = finite(rows[i - 1]?.low);
+    const prevClose = finite(rows[i - 1]?.close);
+
+    if ([high, low, prevHigh, prevLow, prevClose].some(x => x == null)) continue;
+
+    const up = high - prevHigh;
+    const dn = prevLow - low;
+
+    pdm[i] = up > dn && up > 0 ? up : 0;
+    mdm[i] = dn > up && dn > 0 ? dn : 0;
+    tr[i] = Math.max(
+      high - low,
+      Math.abs(high - prevClose),
+      Math.abs(low - prevClose)
+    );
+  }
+
+  if (rows.length <= period * 2) return out;
+
+  let trN = 0;
+  let pN = 0;
+  let mN = 0;
+
+  for (let i = 1; i <= period; i++) {
+    trN += tr[i];
+    pN += pdm[i];
+    mN += mdm[i];
+  }
+
+  const dx = Array(rows.length).fill(null);
+
+  for (let i = period; i < rows.length; i++) {
+    if (i > period) {
+      trN = trN - trN / period + tr[i];
+      pN = pN - pN / period + pdm[i];
+      mN = mN - mN / period + mdm[i];
+    }
+
+    if (trN <= 0) continue;
+
+    const pdi = 100 * pN / trN;
+    const mdi = 100 * mN / trN;
+    const den = pdi + mdi;
+
+    if (den > 0) dx[i] = 100 * Math.abs(pdi - mdi) / den;
+  }
+
+  let seed = 0;
+  let count = 0;
+
+  for (let i = period; i < rows.length; i++) {
+    if (!Number.isFinite(dx[i])) continue;
+
+    if (count < period) {
+      seed += dx[i];
+      count++;
+      if (count === period) out[i] = seed / period;
+    } else {
+      const prev = out[i - 1];
+      if (Number.isFinite(prev)) {
+        out[i] = (prev * (period - 1) + dx[i]) / period;
+      }
+    }
+  }
+
+  return out;
 }
 
 function aggregateUtcDays(rows) {
@@ -221,7 +323,13 @@ async function scan() {
   ]);
 
   const c5 = closed(raw5);
-  if (c5.length < 25 || !bias) {
+  const minBars = Math.max(
+    CONFIG.atrAverageLookback + CONFIG.atrPeriod + 2,
+    CONFIG.adxPeriod * 2 + 2,
+    CONFIG.rsiPeriod + 2
+  );
+
+  if (c5.length < minBars || !bias) {
     return { ready: false, status: 'PRO_NO_DATA', pair: CONFIG.pair, strategyId: CONFIG.id, strategyLabel: CONFIG.label };
   }
 
@@ -232,6 +340,60 @@ async function scan() {
 
   if (!Number.isFinite(prevRsi) || !Number.isFinite(currentRsi)) {
     return { ready: false, status: 'PRO_RSI_NOT_READY', pair: CONFIG.pair, strategyId: CONFIG.id, strategyLabel: CONFIG.label };
+  }
+
+  const adxValues = adxSeries(c5, CONFIG.adxPeriod);
+  const currentAdx = finite(adxValues.at(-1));
+
+  if (!Number.isFinite(currentAdx)) {
+    return { ready: false, status: 'PRO_ADX_NOT_READY', pair: CONFIG.pair, strategyId: CONFIG.id, strategyLabel: CONFIG.label };
+  }
+
+  if (currentAdx < CONFIG.adxMin) {
+    return {
+      ready: false,
+      status: 'PRO_ADX_TOO_LOW',
+      pair: CONFIG.pair,
+      strategyId: CONFIG.id,
+      strategyLabel: CONFIG.label,
+      adx5: currentAdx,
+      adxMin: CONFIG.adxMin,
+      rsi5: currentRsi,
+      dailyBias: bias
+    };
+  }
+
+  const atrValues = atrSeries(c5, CONFIG.atrPeriod);
+  const currentAtr = finite(atrValues.at(-1));
+  const previousAtrValues = atrValues
+    .slice(-(CONFIG.atrAverageLookback + 1), -1)
+    .filter(Number.isFinite);
+
+  if (!Number.isFinite(currentAtr) || previousAtrValues.length < CONFIG.atrAverageLookback) {
+    return { ready: false, status: 'PRO_ATR_NOT_READY', pair: CONFIG.pair, strategyId: CONFIG.id, strategyLabel: CONFIG.label };
+  }
+
+  const avgAtr = previousAtrValues.reduce((a, b) => a + b, 0) / previousAtrValues.length;
+  const atrRatio = avgAtr > 0 ? currentAtr / avgAtr : null;
+
+  if (!Number.isFinite(atrRatio)) {
+    return { ready: false, status: 'PRO_ATR_RATIO_NOT_READY', pair: CONFIG.pair, strategyId: CONFIG.id, strategyLabel: CONFIG.label };
+  }
+
+  if (atrRatio > CONFIG.atrRatioMax) {
+    return {
+      ready: false,
+      status: 'PRO_ATR_TOO_HOT',
+      pair: CONFIG.pair,
+      strategyId: CONFIG.id,
+      strategyLabel: CONFIG.label,
+      atr5: currentAtr,
+      atrRatio,
+      atrRatioMax: CONFIG.atrRatioMax,
+      adx5: currentAdx,
+      rsi5: currentRsi,
+      dailyBias: bias
+    };
   }
 
   let side = null;
@@ -246,7 +408,10 @@ async function scan() {
       strategyId: CONFIG.id,
       strategyLabel: CONFIG.label,
       dailyBias: bias,
-      rsi5: currentRsi
+      rsi5: currentRsi,
+      adx5: currentAdx,
+      atr5: currentAtr,
+      atrRatio
     };
   }
 
@@ -263,7 +428,6 @@ async function scan() {
   // dedicated monitor NEVER uses these targets; its real exit is RSI 63/37.
   const tp1 = side === 'BUY' ? entry + 10000 : entry - 10000;
   const tp2 = side === 'BUY' ? entry + 20000 : entry - 20000;
-  const rawAtr = atr(c5, 14) || 0;
 
   return {
     ready: true,
@@ -272,7 +436,7 @@ async function scan() {
     direction: side,
     strategyId: CONFIG.id,
     strategyLabel: `${CONFIG.label} | خروج RSI فقط 37/63`,
-    entryMode: 'RSI_REVERSAL_D1_EMA50',
+    entryMode: 'RSI_REVERSAL_D1_EMA50_ADX_ATR',
     grade: 'A',
     score: 79,
     aiConfidence: 0,
@@ -285,14 +449,20 @@ async function scan() {
     rrTp2: 0,
     // Shared global guard expects ATR-based stops. This value only prevents the
     // generic guard from rejecting the validated fixed-$10 Pro stop.
-    atr5: Math.max(rawAtr, CONFIG.stopDistance / 1.8),
-    rawAtr5: rawAtr,
+    atr5: Math.max(currentAtr, CONFIG.stopDistance / 1.8),
+    rawAtr5: currentAtr,
+    atrRatio,
+    adx5: currentAdx,
     rsi5: currentRsi,
     dailyBias: bias,
     exitRule: side === 'BUY' ? 'RSI >= 63' : 'RSI <= 37',
     reasons: [
       'RSI(14) reversal cross on closed M5',
       'Daily EMA50 directional filter',
+      `ADX(14) >= ${CONFIG.adxMin}`,
+      `ATR(14) / 50-bar ATR average <= ${CONFIG.atrRatioMax}`,
+      `Cooldown after loss: ${CONFIG.cooldownMinutes} minutes`,
+      'Max 2 losses per UTC day',
       '15:00-16:59 UTC blocked',
       'Fixed $10 stop',
       side === 'BUY' ? 'Exit when RSI >= 63' : 'Exit when RSI <= 37'
