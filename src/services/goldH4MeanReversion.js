@@ -8,7 +8,11 @@ const {
 } = require('../database/trades');
 
 const SOURCE = 'VIP_H4_MR';
-const STATE = { lastSentCandle: null };
+const STATE = {
+  lastSentCandle: null,
+  h1CacheKey: null,
+  h1CacheRows: null
+};
 
 function finite(v) {
   const n = Number(v);
@@ -55,7 +59,15 @@ function atrSeries(candles, period = 14) {
   return out;
 }
 
-async function loadGoldH1() {
+async function loadGoldH1(cacheKey) {
+  if (
+    STATE.h1CacheKey === cacheKey &&
+    Array.isArray(STATE.h1CacheRows) &&
+    STATE.h1CacheRows.length
+  ) {
+    return STATE.h1CacheRows;
+  }
+
   const apiKey = process.env.SIFTING_API_KEY || '';
   if (!apiKey) {
     throw new Error('SIFTING_API_KEY not configured for GOLD H4 MR');
@@ -90,7 +102,7 @@ async function loadGoldH1() {
   const now = Date.now();
   const HOUR = 60 * 60 * 1000;
 
-  return rows
+  const normalized = rows
     .map(r => ({
       timestamp: toMs(r.t ?? r.timestamp),
       open: finite(r.o ?? r.open),
@@ -104,6 +116,13 @@ async function loadGoldH1() {
       [r.open, r.high, r.low, r.close].every(Number.isFinite)
     )
     .sort((a, b) => a.timestamp - b.timestamp);
+
+  if (normalized.length) {
+    STATE.h1CacheKey = cacheKey;
+    STATE.h1CacheRows = normalized;
+  }
+
+  return normalized;
 }
 
 function aggregateH4(h1) {
@@ -234,7 +253,10 @@ async function scanGoldH4MeanReversion(bot) {
       return { ready: false, status: 'H4_DAY_FILTER' };
     }
 
-    const h1 = await loadGoldH1();
+    // During the 20-minute H4 entry window, the same closed H1 history is
+    // sufficient for this setup. Cache it by H4 open to avoid hitting the
+    // provider once per minute and interfering with the shared market stack.
+    const h1 = await loadGoldH1(h4Open);
     const h4 = aggregateH4(h1);
     const meta = evaluateSetup(h4);
 
