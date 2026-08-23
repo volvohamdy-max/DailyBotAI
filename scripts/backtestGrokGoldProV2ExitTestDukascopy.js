@@ -1,0 +1,21 @@
+require('dotenv').config();
+const {getGoldHistoricalCandles}=require('./backtestHistoryDukascopyLocal');
+const H=Math.max(10000,Math.min(100000,Number(process.env.BACKTEST_HISTORY||100000)));
+const SPREAD=Math.max(0,Number(process.env.BACKTEST_SPREAD_USD||.35)),SLIP=Math.max(0,Number(process.env.BACKTEST_SLIPPAGE_USD||.05));
+const ema=(v,p)=>{let o=Array(v.length).fill(null);if(v.length<p)return o;let s=0;for(let i=0;i<p;i++)s+=v[i];let e=s/p;o[p-1]=e;let k=2/(p+1);for(let i=p;i<v.length;i++){e=v[i]*k+e*(1-k);o[i]=e}return o};
+function rsi(v,p=14){let o=Array(v.length).fill(null),g=0,l=0;for(let i=1;i<=p;i++){let d=v[i]-v[i-1];d>=0?g+=d:l-=d}g/=p;l/=p;o[p]=l===0?100:100-100/(1+g/l);for(let i=p+1;i<v.length;i++){let d=v[i]-v[i-1],up=d>0?d:0,dn=d<0?-d:0;g=(g*(p-1)+up)/p;l=(l*(p-1)+dn)/p;o[i]=l===0?100:100-100/(1+g/l)}return o}
+function atr(c,p=14){let t=Array(c.length).fill(0),o=Array(c.length).fill(null);for(let i=1;i<c.length;i++)t[i]=Math.max(c[i].high-c[i].low,Math.abs(c[i].high-c[i-1].close),Math.abs(c[i].low-c[i-1].close));let s=0;for(let i=1;i<=p;i++)s+=t[i];let a=s/p;o[p]=a;for(let i=p+1;i<c.length;i++){a=(a*(p-1)+t[i])/p;o[i]=a}return o}
+function sma(v,p){let o=Array(v.length).fill(null),s=0;for(let i=0;i<v.length;i++){s+=+v[i]||0;if(i>=p)s-=+v[i-p]||0;if(i>=p-1)o[i]=s/p}return o}
+function stats(t){if(!t.length)return{trades:0,wr:0,netR:0,avgR:0,pf:0,dd:0,maxLS:0};let w=0,gw=0,gl=0,e=0,pk=0,dd=0,ls=0,ml=0;for(const x of t){e+=x.r;if(x.r>0){w++;gw+=x.r;ls=0}else{gl+=Math.abs(x.r);ls++;ml=Math.max(ml,ls)}pk=Math.max(pk,e);dd=Math.max(dd,pk-e)}return{trades:t.length,wr:w/t.length*100,netR:e,avgR:e/t.length,pf:gl?gw/gl:999,dd,maxLS:ml}}
+const fmt=s=>`${s.trades} trades | WR ${s.wr.toFixed(1)}% | Net ${s.netR>=0?'+':''}${s.netR.toFixed(2)}R | Avg ${s.avgR.toFixed(3)}R | PF ${s.pf.toFixed(2)} | DD ${s.dd.toFixed(2)}R | LS ${s.maxLS}`;
+const CONFIGS=[
+{name:'A',slAtr:.5,tpR:1},
+{name:'B',slAtr:.75,tpR:1},
+{name:'C',slAtr:1,tpR:1},
+{name:'D',slAtr:1.25,tpR:1},
+{name:'E',slAtr:.75,tpR:1.5},
+{name:'F',slAtr:1,tpR:1.5}
+];
+function buildSignals(c){let close=c.map(x=>x.close),e9=ema(close,9),e21=ema(close,21),R=rsi(close),A=atr(c),vs=sma(c.map(x=>x.volume||0),20),sig=[];for(let i=25;i<c.length-1;i++){if(![e9[i],e21[i],e9[i-1],e21[i-1],R[i],A[i],vs[i]].every(Number.isFinite))continue;let up=e9[i]>e21[i]&&e9[i-1]<=e21[i-1],dn=e9[i]<e21[i]&&e9[i-1]>=e21[i-1],vol=(c[i].volume||0)>vs[i]*1.5,side=up&&R[i]>50&&vol?'BUY':dn&&R[i]<50&&vol?'SELL':null;if(side)sig.push({i,side,a:A[i]})}return sig}
+function run(c,sigs,from,to,cfg){let out=[],free=from;for(const s of sigs){if(s.i<from||s.i>=to||s.i<free)continue;let j=s.i+1,e=s.side==='BUY'?c[j].open+SLIP:c[j].open-SLIP,risk=s.a*cfg.slAtr;if(!(risk>0))continue;let sl=s.side==='BUY'?e-risk:e+risk,tp=s.side==='BUY'?e+risk*cfg.tpR:e-risk*cfg.tpR,cost=(SPREAD+2*SLIP)/risk,end=Math.min(c.length-1,j+36),done=null;for(let k=j;k<=end;k++){let b=c[k],hs=s.side==='BUY'?b.low<=sl:b.high>=sl,ht=s.side==='BUY'?b.high>=tp:b.low<=tp;if(hs&&ht){done={side:s.side,exit:k,r:-1-cost};break}if(hs){done={side:s.side,exit:k,r:-1-cost};break}if(ht){done={side:s.side,exit:k,r:cfg.tpR-cost};break}}if(!done){let px=c[end].close,rr=s.side==='BUY'?(px-e)/risk:(e-px)/risk;done={side:s.side,exit:end,r:rr-cost}}out.push(done);free=done.exit+1}return out}
+(async()=>{console.log('⚙️ GROK GOLD PRO V2 — EXIT MANAGEMENT TEST');let raw=await getGoldHistoricalCandles('5min',H),c=raw.map(r=>({time:+(r.time??r.timestamp),open:+r.open,high:+r.high,low:+r.low,close:+r.close,volume:+r.volume||0})).filter(r=>[r.time,r.open,r.high,r.low,r.close].every(Number.isFinite)).sort((a,b)=>a.time-b.time),sig=buildSignals(c),s=30,u=c.length-s,de=s+Math.floor(u*.6),ve=s+Math.floor(u*.8);console.log(`Signals=${sig.length}`);for(const cfg of CONFIGS){let D=stats(run(c,sig,s,de,cfg)),V=stats(run(c,sig,de,ve,cfg)),O=stats(run(c,sig,ve,c.length,cfg));console.log(`\n${cfg.name} | SL ${cfg.slAtr} ATR | TP ${cfg.tpR}R\nDEV ${fmt(D)}\nVAL ${fmt(V)}\nOOS ${fmt(O)}`)}})().catch(e=>{console.error(e);process.exit(1)});
