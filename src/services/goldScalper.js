@@ -1,17 +1,12 @@
 require('./installMassiveMarketFallback');
 
 const grokGold92Strategy = require('./scalpStrategies/grokGold92Strategy');
-const newYorkStrategy = require('./scalpStrategies/newYorkStrategy');
 const proStrategy = require('./scalpStrategies/proStrategy');
-const { getLatestRegimeDiagnostics } = require('./regimeDiagnosticsCache');
 
-const STRATEGIES = [grokGold92Strategy, newYorkStrategy, proStrategy];
+const STRATEGIES = [grokGold92Strategy, proStrategy];
 
 function finiteOrNull(value) {
-  if (value === null || value === undefined || value === '') {
-    return null;
-  }
-
+  if (value === null || value === undefined || value === '') return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -24,30 +19,6 @@ function firstFiniteFrom(waits, keys) {
     }
   }
   return null;
-}
-
-function firstFinite(...values) {
-  for (const value of values) {
-    const n = finiteOrNull(value);
-    if (n !== null) return n;
-  }
-  return null;
-}
-
-function regimeDiagnosticFallback() {
-  const latest = getLatestRegimeDiagnostics();
-  if (!latest) return {};
-
-  const meta = latest.regimeMeta || {};
-  const indicators = latest.indicators || {};
-
-  return {
-    atr5: firstFinite(meta.atr5, meta.atr, indicators.atr),
-    rsi5: firstFinite(meta.rsi5, indicators.rsi),
-    adx5: firstFinite(meta.adx5, meta.adx15, indicators.adx),
-    vwap5: firstFinite(meta.vwap5, meta.vwap, indicators.vwap),
-    ema20: firstFinite(meta.ema20, indicators.ema20)
-  };
 }
 
 async function scanGoldScalp() {
@@ -88,42 +59,19 @@ async function scanGoldScalp() {
     }
   }
 
-  const primaryWait =
-    waits[0] || {
-      ready: false,
-      status: 'NO_SCALP_STRATEGY_READY',
-      pair: 'XAUUSD'
-    };
-
-  const regimeFallback = regimeDiagnosticFallback();
+  const primaryWait = waits[0] || {
+    ready: false,
+    status: 'NO_SCALP_STRATEGY_READY',
+    pair: 'XAUUSD'
+  };
 
   return {
     ...primaryWait,
-    atr5: firstFinite(
-      primaryWait?.atr5,
-      firstFiniteFrom(waits, ['atr5', 'atr']),
-      regimeFallback.atr5
-    ),
-    rsi5: firstFinite(
-      primaryWait?.rsi5,
-      firstFiniteFrom(waits, ['rsi5', 'rsi']),
-      regimeFallback.rsi5
-    ),
-    adx5: firstFinite(
-      primaryWait?.adx5,
-      firstFiniteFrom(waits, ['adx5', 'adx']),
-      regimeFallback.adx5
-    ),
-    vwap5: firstFinite(
-      primaryWait?.vwap5,
-      firstFiniteFrom(waits, ['vwap5', 'vwap']),
-      regimeFallback.vwap5
-    ),
-    ema20: firstFinite(
-      primaryWait?.ema20,
-      firstFiniteFrom(waits, ['ema20']),
-      regimeFallback.ema20
-    )
+    atr5: finiteOrNull(primaryWait?.atr5) ?? firstFiniteFrom(waits, ['atr5', 'atr']),
+    rsi5: finiteOrNull(primaryWait?.rsi5) ?? firstFiniteFrom(waits, ['rsi5', 'rsi']),
+    adx5: finiteOrNull(primaryWait?.adx5) ?? firstFiniteFrom(waits, ['adx5', 'adx']),
+    vwap5: finiteOrNull(primaryWait?.vwap5) ?? firstFiniteFrom(waits, ['vwap5', 'vwap']),
+    ema20: finiteOrNull(primaryWait?.ema20) ?? firstFiniteFrom(waits, ['ema20'])
   };
 }
 
@@ -166,7 +114,7 @@ async function buildGoldScalpResult() {
   };
 }
 
-function markGoldScalpSent(direction, entry, atr5, strategyId = 'NEW_YORK') {
+function markGoldScalpSent(direction, entry, atr5, strategyId = 'GROK_GOLD_92') {
   const s = STRATEGIES.find((x) => x.CONFIG?.id === strategyId);
   if (s?.markSent) s.markSent(direction, entry, atr5);
 }
