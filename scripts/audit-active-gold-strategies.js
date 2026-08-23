@@ -66,7 +66,7 @@ async function main() {
     s.includes('scanGoldH4MeanReversion')
       ? pass('H4 Mean Reversion is wired directly into auto scan')
       : fail('H4 Mean Reversion is not wired into auto scan');
-    s.includes('bot.telegram.sendMessage(config.vipChannelId, message)')
+    /bot\.telegram\.sendMessage\(\s*config\.vipChannelId\s*,\s*message\s*\)/s.test(s)
       ? pass('Grok/Pro ready signals route to VIP channel')
       : fail('VIP send route missing from auto signals');
     !/scanGoldRegimeSignals|goldRegimeSignals/.test(s)
@@ -76,7 +76,7 @@ async function main() {
 
   if (fs.existsSync(rel('src/services/goldH4MeanReversion.js'))) {
     const s = text('src/services/goldH4MeanReversion.js');
-    s.includes('bot.telegram.sendMessage(config.vipChannelId, message)')
+    /bot\.telegram\.sendMessage\(\s*config\.vipChannelId\s*,\s*message\s*\)/s.test(s)
       ? pass('H4 Mean Reversion ready signals route to VIP channel')
       : fail('H4 VIP send route missing');
     s.includes("const SOURCE = 'VIP_H4_MR'")
@@ -92,7 +92,7 @@ async function main() {
     s.includes('VIP_SCALP_GROK_GOLD_92')
       ? pass('Trade Monitor recognizes Grok Gold 92 and keeps NO-BE behavior')
       : fail('Grok Gold 92 monitor path missing');
-    s.includes('bot.telegram.sendMessage(config.vipChannelId')
+    /bot\.telegram\.sendMessage\(\s*config\.vipChannelId\s*,\s*message\s*\)/s.test(s)
       ? pass('Trade results route to VIP channel')
       : fail('Trade Monitor VIP result send route missing');
   }
