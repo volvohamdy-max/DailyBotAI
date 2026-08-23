@@ -17,9 +17,11 @@ const {
     checkEconomicNews
 } = require('./newsService');
 const { checkUpcomingNewsReliable } = require('./reliableUpcomingNews');
+const { refreshDailyNewsBrief } = require('./dailyNewsBriefService');
 
 let scanRunning = false;
 let newsRunning = false;
+let newsBriefRefreshRunning = false;
 let monitorRunning = false;
 let copilotMonitorRunning = false;
 let radarMonitorRunning = false;
@@ -32,6 +34,8 @@ function startScheduler(bot) {
 
     // =========================
     // الأخبار - كل 5 دقائق
+    // Release + upcoming checks are independent so one slow/failing
+    // path does not block the other.
     // =========================
 
     cron.schedule('*/5 * * * *', async () => {
@@ -47,8 +51,20 @@ function startScheduler(bot) {
 
         try {
 
-            await checkEconomicNews(bot);
-            await checkUpcomingNewsReliable(bot);
+            const results = await Promise.allSettled([
+                checkEconomicNews(bot),
+                checkUpcomingNewsReliable(bot)
+            ]);
+
+            const labels = ['release', 'upcoming'];
+            results.forEach((result, index) => {
+                if (result.status === 'rejected') {
+                    console.log(
+                        `❌ News ${labels[index]} path error:`,
+                        result.reason?.message || result.reason
+                    );
+                }
+            });
 
             console.log("✅ News check finished");
 
@@ -63,6 +79,34 @@ function startScheduler(bot) {
 
             newsRunning = false;
 
+        }
+
+    });
+
+    // =========================
+    // تحديث رسالة الأخبار اليومية المثبتة
+    // كل 10 دقائق طوال اليوم.
+    // Independent lock: a slow refresh never blocks urgent alerts.
+    // =========================
+
+    cron.schedule('*/10 * * * *', async () => {
+
+        if (newsBriefRefreshRunning) {
+            console.log('⚠️ Previous daily news brief refresh still running');
+            return;
+        }
+
+        newsBriefRefreshRunning = true;
+
+        try {
+            await refreshDailyNewsBrief(bot);
+        } catch (err) {
+            console.log(
+                '❌ Daily news brief refresh error:',
+                err.message
+            );
+        } finally {
+            newsBriefRefreshRunning = false;
         }
 
     });
