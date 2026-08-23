@@ -1,23 +1,14 @@
 const { scanGoldH4MeanReversion } = require('./goldH4MeanReversion');
 
+// Compatibility shim for the existing auto-signal scheduler.
+// The retired Regime strategy is not loaded or evaluated here.
 async function scanGoldRegimeSignals(bot) {
-  // GOLD REGIME disabled by design.
-  // Keep this wrapper because autoSignals still calls it, and H4 Mean-Reversion
-  // is intentionally scheduled through the same scanner cycle.
   try {
-    await scanGoldH4MeanReversion(bot);
-  } catch (h4Error) {
-    console.log('❌ GOLD H4 MR independent scan failed:', h4Error.message);
+    return await scanGoldH4MeanReversion(bot);
+  } catch (error) {
+    console.log('❌ GOLD H4 MR independent scan failed:', error.message);
+    return { ready: false, status: 'H4_MR_ERROR', error: error.message };
   }
-
-  return {
-    pair: 'XAUUSD',
-    signal: null,
-    regimeMeta: {
-      ready: false,
-      status: 'GOLD_REGIME_DISABLED'
-    }
-  };
 }
 
 module.exports = { scanGoldRegimeSignals };
