@@ -8,6 +8,21 @@ function atr(c,p=14){let tr=c.map((x,i)=>i?Math.max(x.high-x.low,Math.abs(x.high
 function stats(t){if(!t.length)return{trades:0,wr:0,netR:0,avgR:0,pf:0,dd:0,ls:0};let w=0,gw=0,gl=0,e=0,pk=0,dd=0,ls=0,ml=0;for(const x of t){e+=x.r;if(x.r>0){w++;gw+=x.r;ls=0}else{gl-=x.r;ls++;ml=Math.max(ml,ls)}pk=Math.max(pk,e);dd=Math.max(dd,pk-e)}return{trades:t.length,wr:100*w/t.length,netR:e,avgR:e/t.length,pf:gl?gw/gl:999,dd,ls:ml}}
 const f=s=>`${s.trades} trades | WR ${s.wr.toFixed(1)}% | Net ${s.netR>=0?'+':''}${s.netR.toFixed(2)}R | Avg ${s.avgR.toFixed(3)}R | PF ${s.pf.toFixed(2)} | DD ${s.dd.toFixed(2)}R | LS ${s.ls}`;
 function prep(c){let cl=c.map(x=>x.close),E20=ema(cl,20),E50=ema(cl,50),R=rsi(cl),A=atr(c),AM=roll(A,50,a=>a.every(Number.isFinite)?a.reduce((s,x)=>s+x,0)/50:null),K=c.map((x,i)=>{if(i<4)return null;let q=c.slice(i-4,i+1),lo=Math.min(...q.map(z=>z.low)),hi=Math.max(...q.map(z=>z.high));return 100*(x.close-lo)/(hi-lo+1e-10)}),D=roll(K,3,a=>a.every(Number.isFinite)?a.reduce((s,x)=>s+x,0)/3:null);return{E20,E50,R,A,AM,K,D}}
-function sig(c,x,i){let h=new Date(c[i].time).getUTCHours(),m=new Date(c[i].time).getUTCMinutes(),min=h*60+m,session=(min>=420&&min<=660)||(min>=780&&min<=1020);if(!session||![x.R[i],x.A[i],x.AM[i],x.K[i],x.D[i]].every(Number.isFinite)||x.A[i]<=x.AM[i]*.8)return null;if(x.E20[i]>x.E50[i]&&x.R[i]<30&&x.K[i]<20&&x.K[i]>x.D[i])return'BUY';if(x.E20[i]<x.E50[i]&&x.R[i]>70&&x.K[i]>80&&x.K[i]<x.D[i])return'SELL';return null}
+function sig(c,x,i){let d=new Date(c[i].time),min=d.getUTCHours()*60+d.getUTCMinutes(),session=(min>=420&&min<=660)||(min>=780&&min<=1020);if(!session||![x.R[i],x.A[i],x.AM[i],x.K[i],x.D[i]].every(Number.isFinite)||x.A[i]<=x.AM[i]*.8)return null;if(x.E20[i]>x.E50[i]&&x.R[i]<30&&x.K[i]<20&&x.K[i]>x.D[i])return'BUY';if(x.E20[i]<x.E50[i]&&x.R[i]>70&&x.K[i]>80&&x.K[i]<x.D[i])return'SELL';return null}
 function run(c,x,a,b){let out=[];for(let i=Math.max(a,70);i<Math.min(b,c.length-61);i++){let side=sig(c,x,i);if(!side)continue;let entry=c[i].close,A=x.A[i],sl=side==='BUY'?entry-A:entry+A,tp=side==='BUY'?entry+1.5*A:entry-1.5*A,risk=A,cost=COST/risk,end=i+60,r=null;for(let k=i+1;k<=end;k++){let hs=side==='BUY'?c[k].low<=sl:c[k].high>=sl,ht=side==='BUY'?c[k].high>=tp:c[k].low<=tp;if(hs){r=-1-cost;break}if(ht){r=1.5-cost;break}}if(r===null){let px=c[end].close;r=(side==='BUY'?(px-entry):(entry-px))/risk-cost}out.push({side,r,time:c[i].time})}return out}
-(async()=>{console.log('⚡ OPEN-SOURCE XAUUSD SCALPER — EXACT PUBLISHED SIGNAL RULES');console.log('EMA20/50 + RSI7 + Stoch(5,3) + ATR gate + UTC sessions | SL 1ATR TP 1.5ATR');let c=(await getGoldHistoricalCandles('5min',H)).map(z=>({...z,time:+z.time,open:+z.open,high:+z.high,low:+z.low,close:+z.close}));let x=prep(c),s=70,u=c.length-s,de=s+Math.floor(u*.6),ve=s+Math.floor(u*.8),D=run(c,x,s,de),V=run(c,x,de,ve),O=run(c,x,ve,c.length),F=run(c,x,s,c.length);console.log('\n📊 DEV\n'+f(stats(D))+'\n\n📊 VAL\n'+f(stats(V))+'\n\n🧪 OOS — UNTOUCHED 20%\n'+f(stats(O)));console.log('\n📈 OOS BUY\n'+f(stats(O.filter(t=>t.side==='BUY')))+'\n\n📉 OOS SELL\n'+f(stats(O.filter(t=>t.side==='SELL')));console.log('\n📅 YEARLY — FULL HISTORY');let y={};for(const t of F)(y[new Date(t.time).getUTCFullYear()]??=[]).push(t);for(const [k,v] of Object.entries(y))console.log(`${k} | ${f(stats(v))}`)})().catch(e=>{console.error(e);process.exit(1)});
+(async()=>{
+ console.log('⚡ OPEN-SOURCE XAUUSD SCALPER — EXACT PUBLISHED SIGNAL RULES');
+ console.log('EMA20/50 + RSI7 + Stoch(5,3) + ATR gate + UTC sessions | SL 1ATR TP 1.5ATR');
+ const c=(await getGoldHistoricalCandles('5min',H)).map(z=>({...z,time:+z.time,open:+z.open,high:+z.high,low:+z.low,close:+z.close}));
+ const x=prep(c),s=70,u=c.length-s,de=s+Math.floor(u*.6),ve=s+Math.floor(u*.8);
+ const D=run(c,x,s,de),V=run(c,x,de,ve),O=run(c,x,ve,c.length),F=run(c,x,s,c.length);
+ console.log('\n📊 DEV\n'+f(stats(D)));
+ console.log('\n📊 VAL\n'+f(stats(V)));
+ console.log('\n🧪 OOS — UNTOUCHED 20%\n'+f(stats(O)));
+ console.log('\n📈 OOS BUY\n'+f(stats(O.filter(t=>t.side==='BUY'))));
+ console.log('\n📉 OOS SELL\n'+f(stats(O.filter(t=>t.side==='SELL'))));
+ console.log('\n📅 YEARLY — FULL HISTORY');
+ const y={};
+ for(const t of F){const yr=new Date(t.time).getUTCFullYear();(y[yr]??=[]).push(t);}
+ for(const [yr,trades] of Object.entries(y)){console.log(`${yr} | ${f(stats(trades))}`);}
+})().catch(e=>{console.error(e);process.exit(1)});
