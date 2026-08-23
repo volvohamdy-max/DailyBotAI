@@ -1,0 +1,10 @@
+const fs=require('fs'),path=require('path');
+const base=path.join(__dirname,'backtestNewYorkDukascopyQuick.js');let s=fs.readFileSync(base,'utf8');
+s=s.replace("console.log('🗽 NEW YORK — DUKASCOPY QUICK OPTIMIZER');","console.log('🗽 NEW YORK — FINAL CANDIDATE VALIDATION');");
+const oldCfg="const configs=[];for(const adxMin of [22,25])for(const chaseMax of [0.35,0.50])for(const rr of [1.0,1.25])configs.push({adxMin,chaseMax,rr,bodyMax:0.35});";
+const newCfg="const configs=[{adxMin:24,chaseMax:0.20,rr:1.5,bodyMax:0.20,momentumMin:2}];";
+if(!s.includes(oldCfg))throw new Error('NY config block not found');s=s.replace(oldCfg,newCfg);
+const oldMom="if(md!==side||Math.abs(str)<1)continue;";
+const newMom="if(md!==side||Math.abs(str)<cfg.momentumMin)continue;";
+if(!s.includes(oldMom))throw new Error('NY momentum gate not found');s=s.replace(oldMom,newMom);
+eval(s);
