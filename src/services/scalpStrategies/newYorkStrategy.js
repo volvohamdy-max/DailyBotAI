@@ -6,14 +6,15 @@ const CONFIG = {
   pair: 'XAUUSD',
   sessionStartMinutes: 8 * 60 + 30,
   sessionEndMinutes: 12 * 60,
-  adx15Min: 22,
-  chaseAtrMax: 0.50,
+  adx15Min: 24,
+  chaseAtrMax: 0.20,
   touchToleranceAtr: 0.12,
-  confirmationBodyAtrMax: 0.35,
+  confirmationBodyAtrMax: 0.20,
+  momentumMin: 2,
   swingLookback: 12,
   slBufferAtr: 0.15,
   minRiskAtr: 0.55,
-  tp1R: 1.00,
+  tp1R: 1.50,
   tp2R: 1.50
 };
 
@@ -266,7 +267,7 @@ async function scanNewYorkStrategy() {
   }
 
   const mom = momentum(c5, 3);
-  if (mom.direction !== side || mom.strength < 1) {
+  if (mom.direction !== side || mom.strength < CONFIG.momentumMin) {
     return { ready: false, status: 'NY_MOMENTUM_NOT_RETURNED', pair, side, trend15, trend1h, adx15, atr5, ema20, vwap5, chaseAtr, momentum: mom, strategyId: CONFIG.id, strategyLabel: CONFIG.label };
   }
 
@@ -335,7 +336,7 @@ async function scanNewYorkStrategy() {
       '5M pullback touched EMA20/VWAP',
       `Anti-chase <= ${CONFIG.chaseAtrMax} ATR`,
       '5M confirmation candle',
-      'Momentum returned with regime'
+      `Momentum strength >= ${CONFIG.momentumMin}`
     ]
   };
 }
