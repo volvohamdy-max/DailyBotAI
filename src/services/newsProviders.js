@@ -3,35 +3,6 @@ const crypto = require('crypto');
 const { getOfficialCalendar } = require('./officialNewsProviders');
 
 const PROVIDERS = {
-  // Forex-native fallback. FXStreet exposes a dedicated economic-calendar API
-  // and does not require us to scrape its website. Enabled by default; set
-  // ENABLE_FXSTREET_NEWS=false if it ever needs to be disabled operationally.
-  fxstreet: {
-    enabled: () => process.env.ENABLE_FXSTREET_NEWS !== 'false',
-    async fetch(from, to) {
-      const fromUtc = `${from}T00:00:00Z`;
-      const toUtc = `${to}T23:59:59Z`;
-      const url = `https://calendar-api.fxstreet.com/en/api/v1/eventDates/${encodeURIComponent(fromUtc)}/${encodeURIComponent(toUtc)}`;
-      const { data } = await axios.get(url, {
-        timeout: 15000,
-        headers: { Accept: 'application/json' }
-      });
-      const rows = Array.isArray(data) ? data : Array.isArray(data?.eventDates) ? data.eventDates : Array.isArray(data?.data) ? data.data : [];
-      return rows.map((x) => ({
-        ...x,
-        event: x.event?.name || x.event?.title || x.name || x.title || x.eventName,
-        date: x.dateUtc || x.date || x.datetime || x.eventDate,
-        country: x.country?.name || x.countryName || x.country,
-        currency: x.currency?.code || x.currencyCode || x.currency,
-        impact: x.volatility || x.impact || x.potency,
-        actual: x.actual ?? x.actualValue,
-        forecast: x.consensus ?? x.forecast ?? x.consensusValue,
-        previous: x.previous ?? x.previousValue,
-        id: x.id || x.eventDateId
-      }));
-    }
-  },
-
   fmp: {
     enabled: () => process.env.ENABLE_FMP_NEWS === 'true' && Boolean(process.env.FMP_API_KEY),
     async fetch(from, to) {
