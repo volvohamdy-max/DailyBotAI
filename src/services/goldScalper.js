@@ -2,10 +2,8 @@ require('./installMassiveMarketFallback');
 
 const grokGold92Strategy = require('./scalpStrategies/grokGold92Strategy');
 const proStrategy = require('./scalpStrategies/proStrategy');
-const goldRegimeStrategy = require('./scalpStrategies/goldRegimeStrategy');
-const newYorkStrategy = require('./scalpStrategies/newYorkStrategy');
 
-const STRATEGIES = [grokGold92Strategy, proStrategy, goldRegimeStrategy, newYorkStrategy];
+const STRATEGIES = [grokGold92Strategy, proStrategy];
 
 function finiteOrNull(value) {
   if (value === null || value === undefined || value === '') return null;
