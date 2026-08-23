@@ -1,6 +1,6 @@
 const { analyzePair } = require('./analysisGate');
 const { buildGoldScalpResult } = require('./goldScalper');
-const { scanGoldRegimeSignals } = require('./goldRegimeSignals');
+const { scanGoldH4MeanReversion } = require('./goldH4MeanReversion');
 const { allUsers } = require('../database/users');
 const {
   addTrade,
@@ -44,7 +44,7 @@ async function scanMarket(bot) {
     return;
   }
   const openTrades = getOpenTrades();
-  await scanGoldRegimeSignals(bot);
+  await scanGoldH4MeanReversion(bot);
 
   const scanStart = Date.now();
   console.log("🚀 SCAN START:", new Date().toLocaleTimeString());
