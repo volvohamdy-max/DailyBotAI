@@ -48,5 +48,10 @@ if (missingPackages.length > 0) {
 // BTCUSD stays on the native Binance path.
 require('./src/services/installFinalMarketPriority');
 
+// Operational guards only: stagger observational jobs, stop repeated provider
+// quota hits, and route GOLD H4 long-history recovery away from direct Sifting
+// calls during rate-limit pressure. Strategy logic itself is unchanged.
+require('./src/services/installProviderPressureGuards');
+
 console.log('Loading Telegram Forex AI bot source...');
 require(appPath);
