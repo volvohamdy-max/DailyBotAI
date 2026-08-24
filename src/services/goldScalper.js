@@ -2,12 +2,14 @@ require('./installMassiveMarketFallback');
 
 const grokGold92Strategy = require('./scalpStrategies/grokGold92Strategy');
 const proStrategy = require('./scalpStrategies/proStrategy');
+const goldRangeMrStrategy = require('./scalpStrategies/goldRangeMrStrategy');
 const { getGoldCandlesResilient } = require('./goldCandleRecovery');
 
 // Grok Gold 92 is intentionally enabled for the full trading day.
 grokGold92Strategy.CONFIG.sessionsUTC = [[0, 24]];
 
-const STRATEGIES = [grokGold92Strategy, proStrategy];
+// Keep existing live priority unchanged; Range MR is the new validated fallback.
+const STRATEGIES = [grokGold92Strategy, proStrategy, goldRangeMrStrategy];
 
 function finiteOrNull(value) {
   if (value === null || value === undefined || value === '') return null;
