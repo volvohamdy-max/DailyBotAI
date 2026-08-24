@@ -58,14 +58,73 @@ function normalizeEvent(provider,item){
 function canonicalTitle(title){return String(title).toLowerCase().replace(/[^\p{L}\p{N}\s]/gu,' ').replace(/\b(final|prelim|preliminary|revised|flash)\b/g,'').replace(/\s+/g,' ').trim();}
 function eventKey(event){const d=new Date(event.date),bucket=Math.floor(d.getTime()/(10*60*1000));return `${event.currency}|${canonicalTitle(event.title)}|${bucket}`;}
 function mergeEvents(events){const map=new Map();for(const event of events){const key=eventKey(event);if(!map.has(key)){map.set(key,{...event,sources:[event.provider],sourceCount:1});continue;}const e=map.get(key);e.sources=[...new Set([...e.sources,event.provider])];e.sourceCount=e.sources.length;if(!e.actual&&event.actual!=null)e.actual=event.actual;if(!e.forecast&&event.forecast!=null)e.forecast=event.forecast;if(!e.previous&&event.previous!=null)e.previous=event.previous;if(e.impact!=='high'&&event.impact==='high')e.impact='high';}return [...map.values()].sort((a,b)=>new Date(a.date)-new Date(b.date));}
-let cache={time:0,data:[],providers:[],officialHealth:[]}; const CACHE_MS=10*60*1000;
+
+let cache={time:0,data:[],providers:[],officialHealth:[]};
+let inFlight=null;
+const CACHE_MS=10*60*1000;
+const FORCE_MIN_INTERVAL_MS=Number(process.env.NEWS_PROVIDER_FORCE_MIN_INTERVAL_MS)||45000;
+
 async function getMultiSourceCalendar(forceRefresh=false){
-  if(!forceRefresh&&cache.data.length&&Date.now()-cache.time<CACHE_MS)return cache;
-  if(forceRefresh)console.log('🔄 Force refreshing economic calendar...');
-  const now=new Date(),from=now.toISOString().slice(0,10),to=new Date(now.getTime()+7*86400000).toISOString().slice(0,10),collected=[],providersUsed=[];let officialHealth=[];
-  try{const official=await getOfficialCalendar();officialHealth=official.health||[];if(Array.isArray(official.events)&&official.events.length){collected.push(...official.events);providersUsed.push(...officialHealth.filter(x=>x.ok).map(x=>x.provider));}}catch(error){console.log('⚠️ Official calendar layer failed:',error.message);}
-  for(const[name,provider]of Object.entries(PROVIDERS)){if(!provider.enabled())continue;try{const rows=await provider.fetch(from,to),normalized=rows.map(item=>normalizeEvent(name,item)).filter(Boolean);if(normalized.length){collected.push(...normalized);providersUsed.push(name);}console.log(`📰 ${name}: ${normalized.length} events`);}catch(error){console.log(`⚠️ News provider ${name} failed:`,error.response?.status||'',error.message);}}
-  const data=mergeEvents(collected);cache={time:Date.now(),data,providers:[...new Set(providersUsed)],officialHealth};return cache;
+  const now=Date.now();
+
+  // Protect the provider layer itself, not only callers using newsCalendarGate.
+  // Any direct caller now shares the same refresh instead of duplicating every
+  // official/provider request in parallel.
+  if(inFlight){
+    console.log('⏳ Waiting existing provider calendar refresh');
+    return inFlight;
+  }
+
+  if(cache.data.length){
+    const age=now-cache.time;
+    if(!forceRefresh&&age<CACHE_MS)return cache;
+    if(forceRefresh&&age<FORCE_MIN_INTERVAL_MS)return cache;
+  }
+
+  inFlight=(async()=>{
+    try{
+      const started=new Date();
+      const from=started.toISOString().slice(0,10);
+      const to=new Date(started.getTime()+7*86400000).toISOString().slice(0,10);
+      const collected=[];
+      const providersUsed=[];
+      let officialHealth=[];
+
+      try{
+        const official=await getOfficialCalendar();
+        officialHealth=official.health||[];
+        if(Array.isArray(official.events)&&official.events.length){
+          collected.push(...official.events);
+          providersUsed.push(...officialHealth.filter(x=>x.ok).map(x=>x.provider));
+        }
+      }catch(error){
+        console.log('⚠️ Official calendar layer failed:',error.message);
+      }
+
+      for(const[name,provider]of Object.entries(PROVIDERS)){
+        if(!provider.enabled())continue;
+        try{
+          const rows=await provider.fetch(from,to);
+          const normalized=rows.map(item=>normalizeEvent(name,item)).filter(Boolean);
+          if(normalized.length){
+            collected.push(...normalized);
+            providersUsed.push(name);
+          }
+          console.log(`📰 ${name}: ${normalized.length} events`);
+        }catch(error){
+          console.log(`⚠️ News provider ${name} failed:`,error.response?.status||'',error.message);
+        }
+      }
+
+      const data=mergeEvents(collected);
+      cache={time:Date.now(),data,providers:[...new Set(providersUsed)],officialHealth};
+      return cache;
+    }finally{
+      inFlight=null;
+    }
+  })();
+
+  return inFlight;
 }
 function isHighImpact(event){if(event.impact==='high')return true;const title=canonicalTitle(event.title),strongPatterns=['nonfarm payroll','non farm payroll','nfp','consumer price index','cpi','core cpi','fomc','interest rate','rate decision','federal funds rate','pce','core pce','gross domestic product','gdp','unemployment rate','jobless claims','retail sales','powell'];return strongPatterns.some(pattern=>title.includes(pattern));}
 function eventHash(event){return crypto.createHash('sha1').update(eventKey(event)).digest('hex').slice(0,20);}
