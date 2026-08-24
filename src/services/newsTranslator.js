@@ -33,11 +33,13 @@ const translations = {
 const cache = new Map();
 const CACHE_LIMIT = 800;
 const MIN_REQUEST_INTERVAL_MS = Number(process.env.NEWS_TRANSLATE_MIN_INTERVAL_MS) || 5000;
-const RATE_LIMIT_COOLDOWN_MS = Number(process.env.NEWS_TRANSLATE_429_COOLDOWN_MS) || 30 * 60 * 1000;
+const GOOGLE_COOLDOWN_MS = Number(process.env.NEWS_TRANSLATE_429_COOLDOWN_MS) || 30 * 60 * 1000;
+const SECONDARY_MIN_INTERVAL_MS = Number(process.env.NEWS_TRANSLATE_SECONDARY_MIN_INTERVAL_MS) || 2500;
 let translateQueue = Promise.resolve();
-let lastRemoteRequestAt = 0;
-let rateLimitUntil = 0;
-let rateLimitLogged = false;
+let lastGoogleRequestAt = 0;
+let lastSecondaryRequestAt = 0;
+let googleCooldownUntil = 0;
+let googleCooldownLogged = false;
 
 function escapeRegExp(text) { return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 function translateNews(text) {
@@ -51,7 +53,6 @@ function latinWordCount(text) { return (String(text||'').match(/[A-Za-z]{2,}/g)|
 function isCompleteArabic(text) {
   const s=String(text||'').trim();
   if (!s || !hasArabic(s)) return false;
-  // Allow tickers/acronyms/names, but reject sentences that are still mostly English.
   const latin=(s.match(/[A-Za-z]/g)||[]).length;
   const arabic=(s.match(/[\u0600-\u06FF]/g)||[]).length;
   return latinWordCount(s) <= 6 && latin <= Math.max(24, Math.floor(arabic*0.35));
@@ -64,28 +65,57 @@ function cleanForTranslation(text) {
 function cacheSet(key,value){ if(cache.size>=CACHE_LIMIT){const first=cache.keys().next().value;if(first)cache.delete(first);} cache.set(key,value); }
 function localTranslation(clean){ const local=translateNews(clean); if(local && isCompleteArabic(local)){cacheSet(clean,local);return local;} return null; }
 function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
-async function remoteTranslate(clean){
-  if(Date.now()<rateLimitUntil) return null;
-  const waitMs=Math.max(0,MIN_REQUEST_INTERVAL_MS-(Date.now()-lastRemoteRequestAt)); if(waitMs>0)await sleep(waitMs); lastRemoteRequestAt=Date.now();
+
+async function secondaryTranslate(clean) {
+  const waitMs=Math.max(0,SECONDARY_MIN_INTERVAL_MS-(Date.now()-lastSecondaryRequestAt));
+  if(waitMs>0) await sleep(waitMs);
+  lastSecondaryRequestAt=Date.now();
+  try {
+    const {data}=await axios.get('https://api.mymemory.translated.net/get', {
+      timeout:Number(process.env.NEWS_TRANSLATE_TIMEOUT_MS)||8000,
+      params:{q:clean,langpair:'en|ar'},
+      headers:{'User-Agent':'ForexAIBot/1.0'}
+    });
+    const translated=String(data?.responseData?.translatedText||'').trim();
+    if(!isCompleteArabic(translated)) throw new Error('Secondary translation returned incomplete Arabic text');
+    cacheSet(clean,translated);
+    console.log('✅ News Arabic translation via secondary provider');
+    return translated;
+  } catch(error) {
+    console.log('⚠️ Secondary Arabic translation failed:', error.response?.status || error.message);
+    return null;
+  }
+}
+
+async function googleTranslate(clean){
+  if(Date.now()<googleCooldownUntil) return null;
+  const waitMs=Math.max(0,MIN_REQUEST_INTERVAL_MS-(Date.now()-lastGoogleRequestAt)); if(waitMs>0)await sleep(waitMs); lastGoogleRequestAt=Date.now();
   try{
     const {data}=await axios.get('https://translate.googleapis.com/translate_a/single',{timeout:Number(process.env.NEWS_TRANSLATE_TIMEOUT_MS)||8000,
       params:{client:'gtx',sl:'auto',tl:'ar',dt:'t',q:clean},headers:{'User-Agent':'Mozilla/5.0 (compatible; ForexAIBot/1.0)'}});
     const translated=Array.isArray(data?.[0])?data[0].map(p=>Array.isArray(p)?p[0]:'').filter(Boolean).join('').trim():'';
-    if(!isCompleteArabic(translated)) throw new Error('Translation returned incomplete Arabic text');
-    rateLimitLogged=false; cacheSet(clean,translated); return translated;
+    if(!isCompleteArabic(translated)) throw new Error('Google translation returned incomplete Arabic text');
+    googleCooldownLogged=false; cacheSet(clean,translated); return translated;
   }catch(error){
     const status=Number(error.response?.status||0);
-    if(status===429){rateLimitUntil=Date.now()+RATE_LIMIT_COOLDOWN_MS;if(!rateLimitLogged){rateLimitLogged=true;console.log(`⚠️ News translation remote cooldown ${Math.round(RATE_LIMIT_COOLDOWN_MS/60000)}m; untranslated news will be deferred`);}}
-    else console.log('⚠️ News Arabic translation failed:',error.message);
+    if(status===429){googleCooldownUntil=Date.now()+GOOGLE_COOLDOWN_MS;if(!googleCooldownLogged){googleCooldownLogged=true;console.log(`⚠️ Google news translation cooldown ${Math.round(GOOGLE_COOLDOWN_MS/60000)}m; secondary provider active`);}}
+    else console.log('⚠️ Google Arabic translation failed:',error.message);
     return null;
   }
 }
+
+async function remoteTranslate(clean){
+  // Prefer Google while healthy, then immediately fail over to a second provider.
+  const google=await googleTranslate(clean);
+  if(google) return google;
+  return secondaryTranslate(clean);
+}
+
 async function translateToArabic(text){
   const clean=cleanForTranslation(text); if(!clean)return '';
   if(isCompleteArabic(clean))return clean;
   if(cache.has(clean))return cache.get(clean);
   const local=localTranslation(clean); if(local)return local;
-  if(Date.now()<rateLimitUntil)return null;
   const task=translateQueue.then(()=>{if(cache.has(clean))return cache.get(clean);const again=localTranslation(clean);if(again)return again;return remoteTranslate(clean);});
   translateQueue=task.catch(()=>null); return task;
 }
