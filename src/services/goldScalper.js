@@ -4,9 +4,7 @@ const grokGold92Strategy = require('./scalpStrategies/grokGold92Strategy');
 const proStrategy = require('./scalpStrategies/proStrategy');
 const { getGoldCandlesResilient } = require('./goldCandleRecovery');
 
-// Full-day experiment: keep every Grok filter/SL/TP unchanged, but remove the
-// old validated-session restriction. [[0,24]] makes its existing inSession()
-// gate true during every UTC hour while the market/scheduler is running.
+// Grok Gold 92 is intentionally enabled for the full trading day.
 grokGold92Strategy.CONFIG.sessionsUTC = [[0, 24]];
 
 const STRATEGIES = [grokGold92Strategy, proStrategy];
@@ -36,6 +34,24 @@ function ema(values, period) {
   return Number.isFinite(value) ? value : null;
 }
 
+function atr(rows, period = 14) {
+  if (!Array.isArray(rows) || rows.length < period + 1) return null;
+  const sample = rows.slice(-(period + 1));
+  let total = 0;
+  for (let i = 1; i < sample.length; i++) {
+    const high = finiteOrNull(sample[i]?.high);
+    const low = finiteOrNull(sample[i]?.low);
+    const prevClose = finiteOrNull(sample[i - 1]?.close);
+    if ([high, low, prevClose].some(v => v === null)) return null;
+    total += Math.max(
+      high - low,
+      Math.abs(high - prevClose),
+      Math.abs(low - prevClose)
+    );
+  }
+  return total / period;
+}
+
 function rollingVwap(rows, lookback = 20) {
   if (!Array.isArray(rows) || rows.length < lookback) return null;
   const sample = rows.slice(-lookback);
@@ -53,12 +69,16 @@ async function getGoldIndicatorDiagnostics() {
   try {
     const raw = await getGoldCandlesResilient('5min');
     const closed = Array.isArray(raw) && raw.length > 1 ? raw.slice(0, -1) : [];
-    if (closed.length < 20) return { ema20: null, vwap5: null };
+    if (closed.length < 20) return { atr5: null, ema20: null, vwap5: null };
     const closes = closed.map(x => finiteOrNull(x?.close)).filter(v => v !== null);
-    return { ema20: ema(closes, 20), vwap5: rollingVwap(closed, 20) };
+    return {
+      atr5: atr(closed, 14),
+      ema20: ema(closes, 20),
+      vwap5: rollingVwap(closed, 20)
+    };
   } catch (error) {
     console.log('⚠️ GOLD INDICATOR DIAGNOSTICS:', error.message);
-    return { ema20: null, vwap5: null };
+    return { atr5: null, ema20: null, vwap5: null };
   }
 }
 
@@ -82,7 +102,7 @@ async function scanGoldScalp() {
   const primaryWait = waits[0] || { ready:false,status:'NO_SCALP_STRATEGY_READY',pair:'XAUUSD' };
   return {
     ...primaryWait,
-    atr5: finiteOrNull(primaryWait?.atr5) ?? firstFiniteFrom(waits,['atr5','atr']),
+    atr5: finiteOrNull(primaryWait?.atr5) ?? firstFiniteFrom(waits,['atr5','atr']) ?? diagnostics.atr5,
     rsi5: finiteOrNull(primaryWait?.rsi5) ?? firstFiniteFrom(waits,['rsi5','rsi']),
     adx5: finiteOrNull(primaryWait?.adx5) ?? firstFiniteFrom(waits,['adx5','adx']),
     vwap5: finiteOrNull(primaryWait?.vwap5) ?? firstFiniteFrom(waits,['vwap5','vwap']) ?? diagnostics.vwap5,
