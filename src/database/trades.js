@@ -55,6 +55,21 @@ function evaluateGoldPortfolioEntry(data) {
 
     const open = getManagedOpenTrades();
 
+    const sameStrategy = open.find(
+        trade => normalizeSource(trade.telegram_id) === source
+    );
+
+    if (sameStrategy) {
+        return {
+            allowed: false,
+            managed: true,
+            reason: 'STRATEGY_ALREADY_OPEN',
+            openCount: open.length,
+            conflictingTradeId: sameStrategy.id,
+            conflictingSource: sameStrategy.telegram_id
+        };
+    }
+
     if (open.length >= PORTFOLIO_MAX_OPEN_GOLD) {
         return {
             allowed: false,
@@ -66,23 +81,8 @@ function evaluateGoldPortfolioEntry(data) {
         };
     }
 
-    const opposite = open.find((trade) => {
-        const openAction = String(trade.action || '').toUpperCase();
-        return ['BUY', 'SELL'].includes(openAction) && openAction !== action;
-    });
-
-    if (opposite) {
-        return {
-            allowed: false,
-            managed: true,
-            reason: 'OPPOSITE_DIRECTION_OPEN',
-            openCount: open.length,
-            conflictingTradeId: opposite.id,
-            conflictingSource: opposite.telegram_id,
-            conflictingDirection: opposite.action
-        };
-    }
-
+    // Match the validated portfolio backtest: the second slot is allowed when
+    // it belongs to a different strategy, regardless of BUY/SELL direction.
     return {
         allowed: true,
         managed: true,
@@ -116,7 +116,7 @@ function addTrade(data) {
         if (portfolio.conflictingTradeId) {
             console.log(
                 `↔️ Conflict Trade #${portfolio.conflictingTradeId} | ` +
-                `${portfolio.conflictingSource} | ${portfolio.conflictingDirection}`
+                `${portfolio.conflictingSource}`
             );
         }
 
