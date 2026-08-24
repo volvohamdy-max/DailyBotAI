@@ -3,10 +3,11 @@ require('./installMassiveMarketFallback');
 const grokGold92Strategy = require('./scalpStrategies/grokGold92Strategy');
 const proStrategy = require('./scalpStrategies/proStrategy');
 const goldRangeMrStrategy = require('./scalpStrategies/goldRangeMrStrategy');
+const goldRapidScalpStrategy = require('./scalpStrategies/goldRapidScalpStrategy');
 const { getGoldCandlesResilient } = require('./goldCandleRecovery');
 
 grokGold92Strategy.CONFIG.sessionsUTC = [[0, 24]];
-const STRATEGIES = [grokGold92Strategy, proStrategy, goldRangeMrStrategy];
+const STRATEGIES = [goldRapidScalpStrategy, grokGold92Strategy, proStrategy, goldRangeMrStrategy];
 
 function finiteOrNull(value) { if (value === null || value === undefined || value === '') return null; const n=Number(value); return Number.isFinite(n)?n:null; }
 function firstFiniteFrom(waits,keys){for(const wait of waits)for(const key of keys){const value=finiteOrNull(wait?.[key]);if(value!==null)return value;}return null;}
