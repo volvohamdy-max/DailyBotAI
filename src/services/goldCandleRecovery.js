@@ -43,7 +43,6 @@ async function getDukascopyGold(interval, wanted) {
   const timeframe = dukaTimeframe(interval);
   if (!timeframe) return [];
   const minutes = interval === '5min' ? 5 : interval === '15min' ? 15 : 60;
-  // Extra calendar room covers weekends/market closures.
   const lookbackMs = Math.max(3 * 24 * 60 * 60 * 1000, wanted * minutes * 60 * 1000 * 4);
   const to = new Date();
   const from = new Date(to.getTime() - lookbackMs);
@@ -62,19 +61,23 @@ async function getDukascopyGold(interval, wanted) {
 
 async function getGoldCandlesResilient(interval) {
   const key = `XAUUSD:${interval}`;
+  const required = minBars(interval);
   const cached = recoveryCache.get(key);
   const ttl = recoveryCacheMs(interval);
-  if (cached && Date.now() - cached.time <= ttl) {
+
+  // Never let a short cache prevent Dukascopy recovery on later scans.
+  if (cached && cached.candles?.length >= required && Date.now() - cached.time <= ttl) {
     console.log(`GOLD CANDLE RECOVERY CACHE: ${key} | source=${cached.source} | bars=${cached.candles.length}`);
     return cached.candles;
   }
+  if (cached && cached.candles?.length < required) recoveryCache.delete(key);
+
   if (inFlight.has(key)) {
     console.log(`Shared gold candle request: ${key}`);
     return inFlight.get(key);
   }
 
   const promise = (async () => {
-    const required = minBars(interval);
     let live = [];
     let liveError = null;
     try {
@@ -92,6 +95,7 @@ async function getGoldCandlesResilient(interval) {
       return live;
     }
 
+    console.log(`🟠 GOLD HISTORY SHORT: ${key} | marketService=${live.length}/${required}`);
     try {
       const duka = await getDukascopyGold(interval, required);
       if (duka.length >= required) {
@@ -104,10 +108,9 @@ async function getGoldCandlesResilient(interval) {
       console.log(`⚠️ DUKASCOPY GOLD FALLBACK FAILED ${interval}: ${error.message}`);
     }
 
-    if (live.length) {
-      recoveryCache.set(key, { candles: live, time: Date.now(), source: 'marketService-short' });
-      return live;
-    }
+    // Return short live data to existing strategies, but deliberately do NOT
+    // cache it: the next call must get another chance to recover via Dukascopy.
+    if (live.length) return live;
     if (liveError) throw liveError;
     throw new Error(`No gold candles available for ${interval}`);
   })();
