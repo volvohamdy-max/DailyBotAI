@@ -19,8 +19,6 @@ async function getGoldIndicatorDiagnostics(){try{const raw=await getGoldCandlesR
 async function scanGoldScalp(){
  const results=[];
  console.log('━━━━━━━━ GOLD LIVE STRATEGY CHECK ━━━━━━━━');
- // IMPORTANT: evaluate every live strategy on every scan. A READY result from
- // one strategy must never prevent the remaining strategies from running.
  for(const strategy of STRATEGIES){
   const label=strategy.CONFIG?.label||strategy.CONFIG?.id||'UNKNOWN';
   try{
@@ -36,17 +34,29 @@ async function scanGoldScalp(){
   }
  }
  const readyResults=results.filter(x=>x?.ready);
+ const strategyChecks=results.map((w,i)=>({strategyId:STRATEGIES[i]?.CONFIG?.id||w?.strategyId||'UNKNOWN',strategyLabel:STRATEGIES[i]?.CONFIG?.label||w?.strategyLabel||'UNKNOWN',ready:Boolean(w?.ready),status:w?.status||'WAIT'}));
  if(readyResults.length){
   const selected=readyResults[0];
-  console.log(`🏁 GOLD SCALP FINAL → ${selected.strategyLabel} | ${selected.direction} | ready=${readyResults.length}/${STRATEGIES.length}`);
+  console.log(`🏁 GOLD SCALP FINAL → ${readyResults.map(x=>`${x.strategyLabel}:${x.direction}`).join(' | ')} | ready=${readyResults.length}/${STRATEGIES.length}`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  return{...selected,strategyChecks:results.map((w,i)=>({strategyId:STRATEGIES[i]?.CONFIG?.id||w?.strategyId||'UNKNOWN',strategyLabel:STRATEGIES[i]?.CONFIG?.label||w?.strategyLabel||'UNKNOWN',ready:Boolean(w?.ready),status:w?.status||'WAIT'})),readyStrategies:readyResults.map(x=>({strategyId:x.strategyId,strategyLabel:x.strategyLabel,direction:x.direction,status:x.status}))};
+  return{...selected,strategyChecks,readyResults,readyStrategies:readyResults.map(x=>({strategyId:x.strategyId,strategyLabel:x.strategyLabel,direction:x.direction,status:x.status}))};
  }
  console.log('🏁 GOLD SCALP FINAL → WAIT | no M5 strategy ready');
  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
  const diagnostics=await getGoldIndicatorDiagnostics();
  const primaryWait=results[0]||{ready:false,status:'NO_SCALP_STRATEGY_READY',pair:'XAUUSD'};
- return{...primaryWait,strategyChecks:results.map((w,i)=>({strategyId:STRATEGIES[i]?.CONFIG?.id||w?.strategyId||'UNKNOWN',strategyLabel:STRATEGIES[i]?.CONFIG?.label||w?.strategyLabel||'UNKNOWN',ready:Boolean(w?.ready),status:w?.status||'WAIT'})),atr5:finiteOrNull(primaryWait?.atr5)??firstFiniteFrom(results,['atr5','atr'])??diagnostics.atr5,rsi5:finiteOrNull(primaryWait?.rsi5)??firstFiniteFrom(results,['rsi5','rsi']),adx5:finiteOrNull(primaryWait?.adx5)??firstFiniteFrom(results,['adx5','adx']),vwap5:finiteOrNull(primaryWait?.vwap5)??firstFiniteFrom(results,['vwap5','vwap'])??diagnostics.vwap5,ema20:finiteOrNull(primaryWait?.ema20)??firstFiniteFrom(results,['ema20'])??diagnostics.ema20};
+ return{...primaryWait,strategyChecks,readyResults:[],atr5:finiteOrNull(primaryWait?.atr5)??firstFiniteFrom(results,['atr5','atr'])??diagnostics.atr5,rsi5:finiteOrNull(primaryWait?.rsi5)??firstFiniteFrom(results,['rsi5','rsi']),adx5:finiteOrNull(primaryWait?.adx5)??firstFiniteFrom(results,['adx5','adx']),vwap5:finiteOrNull(primaryWait?.vwap5)??firstFiniteFrom(results,['vwap5','vwap'])??diagnostics.vwap5,ema20:finiteOrNull(primaryWait?.ema20)??firstFiniteFrom(results,['ema20'])??diagnostics.ema20};
 }
-async function buildGoldScalpResult(){const scalp=await scanGoldScalp();if(!scalp.ready)return{pair:'XAUUSD',signal:null,indicators:{atr:scalp.atr5??null,rsi:scalp.rsi5??null,ema20:scalp.ema20??null,adx:scalp.adx5??null,vwap:scalp.vwap5??null},scalpMeta:scalp};return{pair:'XAUUSD',signal:{action:scalp.direction,entry:scalp.entry,stopLoss:scalp.stopLoss,targets:[scalp.tp1,scalp.tp2],confidence:Number(scalp.aiConfidence)>0?Number(scalp.aiConfidence):null,reason:`${scalp.strategyLabel} | ${scalp.entryMode} | Score ${scalp.score}/100`},indicators:{atr:scalp.atr5,rsi:scalp.rsi5,ema20:scalp.ema20,adx:scalp.adx5,vwap:scalp.vwap5},scalpMeta:scalp};}
+
+function buildReadyResult(scalp){
+ return{pair:'XAUUSD',signal:{action:scalp.direction,entry:scalp.entry,stopLoss:scalp.stopLoss,targets:[scalp.tp1,scalp.tp2],confidence:Number(scalp.aiConfidence)>0?Number(scalp.aiConfidence):null,reason:`${scalp.strategyLabel} | ${scalp.entryMode} | Score ${scalp.score}/100`},indicators:{atr:scalp.atr5,rsi:scalp.rsi5,ema20:scalp.ema20,adx:scalp.adx5,vwap:scalp.vwap5},scalpMeta:scalp};
+}
+
+async function buildGoldScalpResult(){
+ const scalp=await scanGoldScalp();
+ if(!scalp.ready)return{pair:'XAUUSD',signal:null,indicators:{atr:scalp.atr5??null,rsi:scalp.rsi5??null,ema20:scalp.ema20??null,adx:scalp.adx5??null,vwap:scalp.vwap5??null},scalpMeta:scalp,readySignalResults:[]};
+ const readyScalps=Array.isArray(scalp.readyResults)&&scalp.readyResults.length?scalp.readyResults:[scalp];
+ const readySignalResults=readyScalps.map(item=>buildReadyResult({...item,strategyChecks:scalp.strategyChecks}));
+ return{...readySignalResults[0],readySignalResults};
+}
 module.exports={scanGoldScalp,buildGoldScalpResult};
