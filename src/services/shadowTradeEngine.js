@@ -13,6 +13,11 @@ const {
 } = require('./marketService');
 
 let shadowMonitorRunning = false;
+let shadowPairCursor = 0;
+const SHADOW_PAIR_BUDGET = Math.max(
+  1,
+  Number(process.env.SHADOW_MONITOR_PAIR_BUDGET) || 2
+);
 
 function n(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -76,7 +81,6 @@ function relevantCandles(candles, createdAt) {
   const createdMs = new Date(createdAt).getTime();
   if (!Number.isFinite(createdMs)) return [];
 
-  // Include the candle containing the creation moment.
   const from = createdMs - 5 * 60 * 1000;
 
   return (Array.isArray(candles) ? candles : [])
@@ -97,9 +101,6 @@ function applyCandlePath(trade, candles) {
     const slHit = candleHits(action, candle, sl, 'SL');
     const tp1Now = !tp1Hit && candleHits(action, candle, tp1, 'TP');
 
-    // If both extremes are crossed inside the same candle and we cannot know
-    // intrabar order, do not invent an outcome. Leave it for a later/lower-TF
-    // observation instead of biasing the audit.
     if (tp2Hit && slHit) {
       console.log(
         `👻 Shadow intrabar ambiguous | #${trade.id} | ${trade.pair} | candle=${new Date(candle.__ts).toISOString()}`
@@ -137,6 +138,26 @@ function applyCandlePath(trade, candles) {
   return { close: null, tp1Hit };
 }
 
+function selectPairsForCycle(trades) {
+  const pairs = [...new Set(
+    trades
+      .map(t => String(t.pair || '').toUpperCase())
+      .filter(Boolean)
+  )];
+
+  if (!pairs.length) return new Set();
+
+  const budget = Math.min(SHADOW_PAIR_BUDGET, pairs.length);
+  const selected = [];
+  for (let i = 0; i < budget; i++) {
+    selected.push(pairs[(shadowPairCursor + i) % pairs.length]);
+  }
+  shadowPairCursor = (shadowPairCursor + budget) % pairs.length;
+
+  console.log(`👻 Shadow monitor rotation: ${selected.join(', ')} | ${budget}/${pairs.length} pairs`);
+  return new Set(selected);
+}
+
 async function monitorShadowTrades() {
   if (shadowMonitorRunning) {
     console.log('👻 Shadow monitor already running - skipped');
@@ -149,10 +170,15 @@ async function monitorShadowTrades() {
     const trades = getOpenShadowTrades();
     if (!trades.length) return;
 
+    const selectedPairs = selectPairsForCycle(trades);
+    const cycleTrades = trades.filter(
+      trade => selectedPairs.has(String(trade.pair || '').toUpperCase())
+    );
+
     const candleCache = new Map();
     const priceCache = new Map();
 
-    for (const trade of trades) {
+    for (const trade of cycleTrades) {
       try {
         const pair = String(trade.pair).toUpperCase();
         const action = String(trade.action).toUpperCase();
@@ -184,7 +210,6 @@ async function monitorShadowTrades() {
           }
         }
 
-        // Live-price fallback covers the newest movement after the latest candle.
         let price = priceCache.get(pair);
         if (price === undefined) {
           price = n(await getLivePrice(pair));
