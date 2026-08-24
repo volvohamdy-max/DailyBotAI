@@ -21,6 +21,12 @@ const translations = {
 
 const cache = new Map();
 const CACHE_LIMIT = 400;
+const MIN_REQUEST_INTERVAL_MS = Number(process.env.NEWS_TRANSLATE_MIN_INTERVAL_MS) || 1200;
+const RATE_LIMIT_COOLDOWN_MS = Number(process.env.NEWS_TRANSLATE_429_COOLDOWN_MS) || 5 * 60 * 1000;
+
+let translateQueue = Promise.resolve();
+let lastRemoteRequestAt = 0;
+let rateLimitUntil = 0;
 
 function translateNews(text) {
   let result = String(text || '');
@@ -60,16 +66,31 @@ function cacheSet(key, value) {
   cache.set(key, value);
 }
 
-async function translateToArabic(text) {
-  const clean = cleanForTranslation(text);
-  if (!clean) return '';
+function deterministicFallback(clean) {
+  const fallback = translateNews(clean);
+  if (hasArabic(fallback)) {
+    cacheSet(clean, fallback);
+    return fallback;
+  }
+  return null;
+}
 
-  // If the feed is already Arabic, do not rewrite it.
-  if (hasArabic(clean) && !/[A-Za-z]{25,}/.test(clean)) {
-    return clean;
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function remoteTranslate(clean) {
+  if (Date.now() < rateLimitUntil) {
+    return deterministicFallback(clean);
   }
 
-  if (cache.has(clean)) return cache.get(clean);
+  const waitMs = Math.max(
+    0,
+    MIN_REQUEST_INTERVAL_MS - (Date.now() - lastRemoteRequestAt)
+  );
+  if (waitMs > 0) await sleep(waitMs);
+
+  lastRemoteRequestAt = Date.now();
 
   try {
     const { data } = await axios.get(
@@ -104,18 +125,46 @@ async function translateToArabic(text) {
     cacheSet(clean, translated);
     return translated;
   } catch (error) {
-    console.log('⚠️ News Arabic translation failed:', error.message);
+    const status = Number(error.response?.status || 0);
 
-    // Deterministic fallback for short titles. Never publish a long raw
-    // English article as if it were Arabic.
-    const fallback = translateNews(clean);
-    if (hasArabic(fallback)) {
-      cacheSet(clean, fallback);
-      return fallback;
+    if (status === 429) {
+      rateLimitUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
+      console.log(
+        `⚠️ News Arabic translation rate-limited; cooldown ${Math.round(RATE_LIMIT_COOLDOWN_MS / 60000)}m`
+      );
+    } else {
+      console.log('⚠️ News Arabic translation failed:', error.message);
     }
 
-    return null;
+    return deterministicFallback(clean);
   }
+}
+
+async function translateToArabic(text) {
+  const clean = cleanForTranslation(text);
+  if (!clean) return '';
+
+  // If the feed is already Arabic, do not rewrite it.
+  if (hasArabic(clean) && !/[A-Za-z]{25,}/.test(clean)) {
+    return clean;
+  }
+
+  if (cache.has(clean)) return cache.get(clean);
+
+  // During a 429 cooldown, do not keep hitting the public Google endpoint.
+  if (Date.now() < rateLimitUntil) {
+    return deterministicFallback(clean);
+  }
+
+  // Serialize remote translations and space them out. This prevents a burst of
+  // several news feeds/calendars from triggering Google's 429 protection.
+  const task = translateQueue.then(() => {
+    if (cache.has(clean)) return cache.get(clean);
+    return remoteTranslate(clean);
+  });
+
+  translateQueue = task.catch(() => null);
+  return task;
 }
 
 module.exports = {
