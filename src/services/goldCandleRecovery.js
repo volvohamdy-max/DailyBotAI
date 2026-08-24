@@ -1,8 +1,10 @@
-const { getCandles } = require('./marketService');
-const { getHistoricalRates } = require('dukascopy-node');
+const axios = require('axios');
+const { getCandles, getPrice } = require('./marketService');
 
-// marketService remains first choice. Dukascopy is only used when the live
-// provider returns too few gold bars for a validated strategy.
+// Gold policy:
+// - live XAUUSD price: marketService (GoldAPI first)
+// - candle history/indicators: existing marketService first, then Binance PAXG proxy
+// - no Dukascopy in the live gold strategy path
 const recoveryCache = new Map();
 const inFlight = new Map();
 
@@ -20,43 +22,43 @@ function minBars(interval) {
   return 100;
 }
 
-function dukaTimeframe(interval) {
-  if (interval === '5min') return 'm5';
-  if (interval === '15min') return 'm15';
-  if (interval === '1h') return 'h1';
-  return null;
+function binanceInterval(interval) {
+  return ({ '1min':'1m', '5min':'5m', '15min':'15m', '30min':'30m', '1h':'1h' })[interval] || null;
 }
 
-function normalizeDuka(rows) {
-  return (Array.isArray(rows) ? rows : [])
-    .map(x => ({
-      timestamp: Number(x.timestamp),
-      datetime: x.datetime || (Number.isFinite(Number(x.timestamp)) ? new Date(Number(x.timestamp)).toISOString() : undefined),
-      open: Number(x.open), high: Number(x.high), low: Number(x.low), close: Number(x.close),
-      volume: Number(x.volume || 0)
-    }))
-    .filter(x => Number.isFinite(x.timestamp) && [x.open,x.high,x.low,x.close].every(Number.isFinite))
-    .sort((a,b) => a.timestamp - b.timestamp);
-}
+async function getBinanceGoldProxy(interval, wanted) {
+  const tf = binanceInterval(interval);
+  if (!tf) throw new Error(`Unsupported Binance gold proxy interval: ${interval}`);
 
-async function getDukascopyGold(interval, wanted) {
-  const timeframe = dukaTimeframe(interval);
-  if (!timeframe) return [];
-  const minutes = interval === '5min' ? 5 : interval === '15min' ? 15 : 60;
-  const lookbackMs = Math.max(3 * 24 * 60 * 60 * 1000, wanted * minutes * 60 * 1000 * 4);
-  const to = new Date();
-  const from = new Date(to.getTime() - lookbackMs);
-  console.log(`🟣 DUKASCOPY GOLD FALLBACK: XAUUSD ${interval} | need>=${wanted}`);
-  const rows = await getHistoricalRates({
-    instrument: 'xauusd',
-    dates: { from, to },
-    timeframe,
-    format: 'json',
-    volumes: true,
-    useCache: true,
-    cacheFolderPath: './data/dukascopy-cache'
+  const limit = Math.max(150, Math.min(500, wanted + 30));
+  const { data } = await axios.get('https://api.binance.com/api/v3/klines', {
+    params: { symbol: 'PAXGUSDT', interval: tf, limit },
+    timeout: Number(process.env.MARKET_PROVIDER_TIMEOUT_MS) || 10000
   });
-  return normalizeDuka(rows).slice(-(wanted + 20));
+
+  let rows = (Array.isArray(data) ? data : []).map(r => ({
+    timestamp: Number(r[0]),
+    open: Number(r[1]), high: Number(r[2]), low: Number(r[3]), close: Number(r[4]),
+    volume: Number(r[5] || 0)
+  })).filter(r => Number.isFinite(r.timestamp) && [r.open,r.high,r.low,r.close].every(Number.isFinite));
+
+  if (rows.length < wanted) throw new Error(`PAXGUSDT short history ${rows.length}/${wanted}`);
+
+  const proxyLast = rows.at(-1)?.close;
+  const goldPrice = Number(await getPrice('XAUUSD'));
+  if (!(proxyLast > 0) || !(goldPrice > 0)) throw new Error('Invalid proxy calibration price');
+
+  const calibration = goldPrice / proxyLast;
+  rows = rows.map(c => ({
+    ...c,
+    open: c.open * calibration,
+    high: c.high * calibration,
+    low: c.low * calibration,
+    close: c.close * calibration
+  }));
+
+  console.log(`🪙 GOLD PROXY OK PAXGUSDT ${interval} | bars=${rows.length} | calibration=${calibration.toFixed(6)}`);
+  return rows;
 }
 
 async function getGoldCandlesResilient(interval) {
@@ -65,7 +67,6 @@ async function getGoldCandlesResilient(interval) {
   const cached = recoveryCache.get(key);
   const ttl = recoveryCacheMs(interval);
 
-  // Never let a short cache prevent Dukascopy recovery on later scans.
   if (cached && cached.candles?.length >= required && Date.now() - cached.time <= ttl) {
     console.log(`GOLD CANDLE RECOVERY CACHE: ${key} | source=${cached.source} | bars=${cached.candles.length}`);
     return cached.candles;
@@ -85,9 +86,6 @@ async function getGoldCandlesResilient(interval) {
       if (!Array.isArray(live)) live = [];
     } catch (error) {
       liveError = error;
-      const status = error?.response?.status;
-      const rateLimited = status === 429 || /429|rate.?limit/i.test(String(error?.message || ''));
-      if (rateLimited) console.log(`GOLD DATA DEGRADED: ${key} rate-limited; trying Dukascopy history`);
     }
 
     if (live.length >= required) {
@@ -95,21 +93,17 @@ async function getGoldCandlesResilient(interval) {
       return live;
     }
 
-    console.log(`🟠 GOLD HISTORY SHORT: ${key} | marketService=${live.length}/${required}`);
+    console.log(`🟠 GOLD HISTORY SHORT: ${key} | current=${live.length}/${required} | switching=PAXGUSDT`);
     try {
-      const duka = await getDukascopyGold(interval, required);
-      if (duka.length >= required) {
-        console.log(`✅ DUKASCOPY GOLD CANDLES ${interval}: ${duka.length}`);
-        recoveryCache.set(key, { candles: duka, time: Date.now(), source: 'Dukascopy' });
-        return duka;
+      const proxy = await getBinanceGoldProxy(interval, required);
+      if (proxy.length >= required) {
+        recoveryCache.set(key, { candles: proxy, time: Date.now(), source: 'Binance-PAXG-Proxy' });
+        return proxy;
       }
-      console.log(`⚠️ DUKASCOPY GOLD SHORT HISTORY ${interval}: ${duka.length}/${required}`);
     } catch (error) {
-      console.log(`⚠️ DUKASCOPY GOLD FALLBACK FAILED ${interval}: ${error.message}`);
+      console.log(`⚠️ BINANCE GOLD PROXY FAILED ${interval}: ${error.message}`);
     }
 
-    // Return short live data to existing strategies, but deliberately do NOT
-    // cache it: the next call must get another chance to recover via Dukascopy.
     if (live.length) return live;
     if (liveError) throw liveError;
     throw new Error(`No gold candles available for ${interval}`);
