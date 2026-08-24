@@ -4,7 +4,9 @@ const { evaluateScalpEntry } = require('./scalpingEntryEngine');
 
 const ALWAYS_SCAN = ['XAUUSD', 'BTCUSD'];
 const FX_PAIRS = ['EURUSD', 'GBPUSD', 'USDJPY', 'EURJPY', 'GBPJPY', 'CHFJPY'];
-const FX_BATCH_SIZE = Number(process.env.SMART_SCANNER_FX_BATCH_SIZE) || 2;
+// One FX pair per cycle by default greatly reduces TwelveData/Sifting bursts.
+// Override with SMART_SCANNER_FX_BATCH_SIZE if a larger batch is explicitly desired.
+const FX_BATCH_SIZE = Number(process.env.SMART_SCANNER_FX_BATCH_SIZE) || 1;
 const SNAPSHOT_MAX_AGE_MS = Number(process.env.SMART_SCANNER_SNAPSHOT_MAX_AGE_MS) || 20 * 60 * 1000;
 const PAIR_TIMEOUT_MS = Number(process.env.SMART_SCANNER_PAIR_TIMEOUT_MS) || 20000;
 
@@ -111,10 +113,15 @@ function nextFxBatch() {
 function buildRow(pair, result) {
     if (!result || !result.indicators) return null;
     const indicators = result.indicators;
+    const validAIAction = result.signal && (result.signal.action === 'BUY' || result.signal.action === 'SELL');
+    const aiWasRequired = result.technicalDirection === 'BUY' || result.technicalDirection === 'SELL';
+
     let action = 'WAIT';
-    if (result.signal && (result.signal.action === 'BUY' || result.signal.action === 'SELL')) {
+    if (validAIAction) {
         action = result.signal.action;
-    } else {
+    } else if (!aiWasRequired) {
+        // No AI validation was required because technical analysis itself had no
+        // strong direction. Keep the row descriptive only.
         action = getTechnicalDirection(indicators);
     }
 
@@ -124,6 +131,14 @@ function buildRow(pair, result) {
     if (confidence !== null && (action === 'BUY' || action === 'SELL')) {
         score = Math.round(score * 0.65 + confidence * 0.35);
     }
+
+    // Fail closed: when technical analysis triggered the AI gate but AI returned
+    // no valid BUY/SELL, this scanner result must not masquerade as actionable.
+    if (aiWasRequired && !validAIAction) {
+        action = 'WAIT';
+        score = Math.min(score, 45);
+    }
+
     if (action === 'WAIT') score = Math.min(score, 45);
 
     return {
@@ -131,6 +146,7 @@ function buildRow(pair, result) {
         action,
         score,
         confidence,
+        aiValidated: Boolean(validAIAction),
         scalpEntry: null,
         indicators,
         analyzedAt: Date.now(),
@@ -156,7 +172,8 @@ async function analyzeOne(pair) {
     console.log(`📊 SMART RESULT ${pair}:`, {
         action: row.action,
         score: row.score,
-        confidence: row.confidence
+        confidence: row.confidence,
+        aiValidated: row.aiValidated
     });
     return row;
 }
@@ -211,6 +228,7 @@ async function scanMarkets() {
     const actionable = results
         .filter(row =>
             row.freshThisCycle === true &&
+            row.aiValidated === true &&
             (row.action === 'BUY' || row.action === 'SELL') &&
             Number(row.confidence) >= 60
         )
@@ -231,7 +249,7 @@ async function scanMarkets() {
         }
 
         if (row.action !== 'BUY' && row.action !== 'SELL') {
-            row.scalpEntry = { status: 'NOT_APPLICABLE', reason: 'NO_ACTION' };
+            row.scalpEntry = { status: 'NOT_APPLICABLE', reason: row.aiValidated ? 'NO_ACTION' : 'AI_NOT_VALIDATED' };
             continue;
         }
 
