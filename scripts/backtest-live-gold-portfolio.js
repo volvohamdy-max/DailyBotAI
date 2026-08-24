@@ -2,8 +2,7 @@
 'use strict';
 
 // Unified runner for the CURRENT live gold strategy set.
-// Important: this file does not contain strategy parameters. Each component
-// backtest is responsible for mirroring its corresponding live strategy.
+// Important: component backtests should import/mirror their corresponding live strategy.
 
 const { spawnSync } = require('child_process');
 const fs = require('fs');
@@ -25,7 +24,7 @@ const TESTS = [
   ['🚀 GOLD RAPID SCALP V5', 'scripts/backtest-gold-rapid-scalp-v5.js'],
   ['⚡ GROK GOLD 92', 'scripts/backtest-grok92-all-day.js'],
   ['⭐ PRO STRATEGY', 'scripts/backtest-gold-pro-standalone.js'],
-  ['🌊 GOLD RANGE MR V2', 'scripts/backtest-gold-range-loose-regime-final.js'],
+  ['🌊 GOLD RANGE MR V3', 'scripts/backtest-gold-range-live-exact.js'],
   ['🟣 GOLD H4 MEAN REVERSION', 'scripts/backtest-gold-h4-mean-reversion.js']
 ];
 
