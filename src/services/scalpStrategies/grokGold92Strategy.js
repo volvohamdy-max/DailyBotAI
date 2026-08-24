@@ -1,4 +1,5 @@
 const { getCandles, getPrice } = require('../marketService');
+const { getDukascopyCandles } = require('../dukascopyMarketData');
 
 const CONFIG = {
   id: 'GROK_GOLD_92',
@@ -17,10 +18,7 @@ const CONFIG = {
   rsiSellMax: 48,
   emaGapAtr: 0.04,
   h1DistanceAtr: 0.10,
-  sessionsUTC: [
-    [13, 16],
-    [18, 20]
-  ]
+  sessionsUTC: [[0, 24]]
 };
 
 const STATE = {
@@ -181,11 +179,6 @@ function adxSeries(rows, period = 14) {
   return out;
 }
 
-function inSession(date = new Date()) {
-  const h = date.getUTCHours();
-  return CONFIG.sessionsUTC.some(([start, end]) => h >= start && h < end);
-}
-
 function barKey(bar) {
   return String(bar?.timestamp ?? bar?.datetime ?? bar?.time ?? bar?.date ?? '');
 }
@@ -201,19 +194,31 @@ function wait(status, extra = {}) {
   };
 }
 
+async function loadH1History(pair, primaryRows) {
+  const primary = Array.isArray(primaryRows) ? primaryRows : [];
+  if (closedBars(primary).length >= 230) return primary;
+
+  try {
+    console.log(`🛟 GROK92 H1 RECOVERY | primary=${closedBars(primary).length} | requesting Dukascopy history`);
+    const recovered = await getDukascopyCandles(pair, '1h');
+    if (closedBars(recovered).length >= 230) return recovered;
+  } catch (error) {
+    console.log(`⚠️ GROK92 H1 RECOVERY FAILED: ${error.message}`);
+  }
+
+  return primary;
+}
+
 async function scanGrokGold92Strategy() {
   const pair = CONFIG.pair;
 
-  if (!inSession()) {
-    return wait('GROK92_OUTSIDE_SESSION');
-  }
-
-  const [raw5, raw1h, livePrice] = await Promise.all([
+  const [raw5, primary1h, livePrice] = await Promise.all([
     getCandles(pair, '5min'),
     getCandles(pair, '1h'),
     getPrice(pair)
   ]);
 
+  const raw1h = await loadH1History(pair, primary1h);
   const c5 = closedBars(raw5);
   const c1h = closedBars(raw1h);
 
@@ -371,7 +376,7 @@ async function scanGrokGold92Strategy() {
       `H1 ADX >= ${CONFIG.adxMin}`,
       'H1 price aligned with EMA200',
       `H1 distance >= ${CONFIG.h1DistanceAtr} ATR`,
-      'Validated UTC session window',
+      'All-day scan enabled',
       `SL ${CONFIG.stopAtr} ATR / TP ${CONFIG.rewardR}R`
     ]
   };
