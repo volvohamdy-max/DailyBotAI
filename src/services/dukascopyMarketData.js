@@ -178,10 +178,14 @@ async function fetchDatafeed(pair, interval, useCache = true) {
   }
 
   if (interval === '1h') {
-    const rows15 = await fetchSource(pair, 'm15', 7 * 24 * 60 * 60 * 1000, useCache);
-    if (rows15.length >= 80) return aggregate(rows15, 60).slice(-100);
-    const direct = await fetchSource(pair, 'h1', 10 * 24 * 60 * 60 * 1000, useCache);
-    return direct.slice(-100);
+    // Grok Gold 92 needs EMA200 + ADX on H1, so 100 bars are not enough.
+    // Pull roughly three weeks and retain 300 H1 candles.
+    const rows15 = await fetchSource(pair, 'm15', 21 * 24 * 60 * 60 * 1000, useCache);
+    const aggregated = aggregate(rows15, 60).slice(-300);
+    if (aggregated.length >= 230) return aggregated;
+    console.log(`🟢 Dukascopy direct h1 fallback: ${pair}${useCache ? '' : ' | fresh'}`);
+    const direct = await fetchSource(pair, 'h1', 21 * 24 * 60 * 60 * 1000, useCache);
+    return direct.slice(-300);
   }
 
   if (interval === '1min') {
@@ -192,7 +196,7 @@ async function fetchDatafeed(pair, interval, useCache = true) {
 }
 
 function validateCandles(symbol, interval, candles) {
-  const minimum = interval === '15min' ? 50 : interval === '5min' ? 30 : 20;
+  const minimum = interval === '1h' ? 230 : interval === '15min' ? 50 : interval === '5min' ? 30 : 20;
   if (candles.length < minimum) {
     throw new Error(`Insufficient Dukascopy datafeed candles ${symbol} ${interval}: ${candles.length}/${minimum}`);
   }
