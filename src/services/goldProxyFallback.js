@@ -15,6 +15,17 @@ function mapInterval(tf) {
   })[String(tf)] || null;
 }
 
+function proxyLimit(tf) {
+  // H1 needs enough history for Grok EMA200/ADX and GOLD H4 aggregation.
+  if (String(tf) === '1h') return 500;
+  return 120;
+}
+
+function outputLimit(tf) {
+  if (String(tf) === '1h') return 420;
+  return 100;
+}
+
 async function getGoldApiPrice() {
   const { data } = await axios.get(GOLD_API_URL, {
     timeout: TIMEOUT,
@@ -33,7 +44,7 @@ async function fetchProxy(symbol, tf) {
   if (!interval) throw new Error(`Unsupported gold proxy interval ${tf}`);
 
   const { data } = await axios.get(`${BINANCE_BASE}/api/v3/klines`, {
-    params: { symbol, interval, limit: 120 },
+    params: { symbol, interval, limit: proxyLimit(tf) },
     timeout: TIMEOUT
   });
 
@@ -88,7 +99,7 @@ async function calibratedProxy(symbol, tf) {
     `🪙 GOLD PROXY OK ${symbol} ${tf} | bars=${out.length} | age=${ageMin}m | dev=${deviationPct.toFixed(4)}% | calibration=${ratio.toFixed(6)}`
   );
 
-  return out.slice(-100);
+  return out.slice(-outputLimit(tf));
 }
 
 async function getGoldProxyCandles(tf) {
