@@ -11,6 +11,29 @@ function adx(c,p=14){const o=Array(c.length).fill(null),tr=Array(c.length).fill(
 function stats(t){let net=0,pk=0,dd=0,gp=0,gl=0,w=0,ls=0,maxLs=0;for(const x of [...t].sort((a,b)=>a.exitTime-b.exitTime)){net+=x.r;if(x.r>0){w++;gp+=x.r;ls=0}else{gl-=x.r;ls++;maxLs=Math.max(maxLs,ls)}pk=Math.max(pk,net);dd=Math.max(dd,pk-net)}return{n:t.length,wr:t.length?w/t.length*100:0,net,avg:t.length?net/t.length:0,pf:gl?gp/gl:999,dd,ls:maxLs}}
 const fmt=s=>`${s.n} trades | WR ${s.wr.toFixed(1)}% | Net ${s.net>=0?'+':''}${s.net.toFixed(2)}R | Avg ${s.avg.toFixed(3)}R | PF ${s.pf.toFixed(2)} | DD ${s.dd.toFixed(2)}R | LS ${s.ls}`;
 
+// EXACT stress-test LOOSE_REGIME variant:
+// only these six regime parameters differ from BASE.
+const P = {
+  adxMax:17,
+  atrLo:0.68,
+  atrHi:1.12,
+  emaSlopeMax:0.38,
+  widthMin:2.4,
+  widthMax:5.8,
+  // BASE rejection/exit parameters intentionally unchanged:
+  edgeAtr:0.28,
+  edgeWidth:0.075,
+  wickMin:0.35,
+  bodyMax:0.58,
+  rsiEdge:42,
+  slMinAtr:0.90,
+  slCapAtr:1.45,
+  stopPadAtr:0.22,
+  minRR:0.90,
+  maxRR:1.35,
+  maxBars:18
+};
+
 function runLooseRegime(m5){
   const out=[];
   const closes=m5.map(x=>x.close);
@@ -19,61 +42,34 @@ function runLooseRegime(m5){
   for(let i=100;i<m5.length-2;i++){
     if(i<=busy)continue;
     if(![E20[i],E20[i-6],R[i],A[i],D[i]].every(Number.isFinite)||!(A[i]>0))continue;
-
-    // Loose regime variant from the V2 stress test.
-    if(D[i] > 18) continue;
-    const atrSample=A.slice(i-50,i).filter(Number.isFinite);
-    if(atrSample.length<45)continue;
-    const atrMean=atrSample.reduce((a,b)=>a+b,0)/atrSample.length;
-    const atrRatio=A[i]/atrMean;
-    if(atrRatio < 0.68 || atrRatio > 1.12) continue;
-    const emaSlope=Math.abs(E20[i]-E20[i-6])/A[i];
-    if(emaSlope>0.38)continue;
-
-    const look=m5.slice(i-30,i);
-    const hi=Math.max(...look.map(x=>x.high));
-    const lo=Math.min(...look.map(x=>x.low));
-    const width=hi-lo;
-    if(width < A[i]*2.4 || width > A[i]*5.8)continue;
-
-    const edgeBand=Math.max(A[i]*0.28,width*0.075);
-    let lowTouches=0,highTouches=0;
-    for(const b of look){if(b.low<=lo+edgeBand)lowTouches++;if(b.high>=hi-edgeBand)highTouches++;}
-    if(lowTouches<2||highTouches<2)continue;
-
-    const recent=look.slice(-6);
-    if(recent.some(b=>b.close<lo-A[i]*0.10||b.close>hi+A[i]*0.10))continue;
-
-    const c=m5[i],barRange=Math.max(1e-9,c.high-c.low),body=Math.abs(c.close-c.open)/barRange;
-    const lowerWick=(Math.min(c.open,c.close)-c.low)/barRange;
-    const upperWick=(c.high-Math.max(c.open,c.close))/barRange;
-    const midpoint=(hi+lo)/2;
+    if(D[i]>P.adxMax)continue;
+    const as=A.slice(i-50,i).filter(Number.isFinite);if(as.length<45)continue;
+    const am=as.reduce((a,b)=>a+b,0)/as.length,ar=A[i]/am;if(ar<P.atrLo||ar>P.atrHi)continue;
+    if(Math.abs(E20[i]-E20[i-6])/A[i]>P.emaSlopeMax)continue;
+    const look=m5.slice(i-30,i),hi=Math.max(...look.map(x=>x.high)),lo=Math.min(...look.map(x=>x.low)),width=hi-lo;
+    if(width<A[i]*P.widthMin||width>A[i]*P.widthMax)continue;
+    const edge=Math.max(A[i]*P.edgeAtr,width*P.edgeWidth);let lt=0,ht=0;
+    for(const b of look){if(b.low<=lo+edge)lt++;if(b.high>=hi-edge)ht++;}
+    if(lt<2||ht<2)continue;
+    if(look.slice(-6).some(b=>b.close<lo-A[i]*.10||b.close>hi+A[i]*.10))continue;
+    const c=m5[i],br=Math.max(1e-9,c.high-c.low),body=Math.abs(c.close-c.open)/br,lw=(Math.min(c.open,c.close)-c.low)/br,uw=(c.high-Math.max(c.open,c.close))/br,mid=(hi+lo)/2;
     let side=null;
-    const buyReject=c.low<=lo+edgeBand&&c.close>=lo+edgeBand*0.75&&lowerWick>=0.32&&body<=0.62&&R[i]<=44;
-    const sellReject=c.high>=hi-edgeBand&&c.close<=hi-edgeBand*0.75&&upperWick>=0.32&&body<=0.62&&R[i]>=56;
-    if(buyReject)side='BUY';
-    if(sellReject)side='SELL';
+    if(c.low<=lo+edge&&c.close>=lo+edge*.75&&lw>=P.wickMin&&body<=P.bodyMax&&R[i]<=P.rsiEdge)side='BUY';
+    if(c.high>=hi-edge&&c.close<=hi-edge*.75&&uw>=P.wickMin&&body<=P.bodyMax&&R[i]>=100-P.rsiEdge)side='SELL';
     if(!side)continue;
-    if(side==='BUY'&&(c.close<=lo||c.close>=midpoint))continue;
-    if(side==='SELL'&&(c.close>=hi||c.close<=midpoint))continue;
-
+    if(side==='BUY'&&(c.close<=lo||c.close>=mid))continue;
+    if(side==='SELL'&&(c.close>=hi||c.close<=mid))continue;
     const en=m5[i+1].open;
-    const structuralStop=side==='BUY'?Math.max(A[i]*0.85,en-(lo-A[i]*0.22)):Math.max(A[i]*0.85,(hi+A[i]*0.22)-en);
-    const slDist=Math.min(structuralStop,A[i]*1.55);
-    if(!(slDist>0))continue;
-    const midDistance=side==='BUY'?midpoint-en:en-midpoint;
-    const targetDist=Math.min(midDistance,slDist*1.35);
-    const rr=targetDist/slDist;
-    if(!(rr>=0.80&&rr<=1.35))continue;
-    const sl=side==='BUY'?en-slDist:en+slDist;
-    const tp=side==='BUY'?en+targetDist:en-targetDist;
-
+    const structuralStop=side==='BUY'?Math.max(A[i]*P.slMinAtr,en-(lo-A[i]*P.stopPadAtr)):Math.max(A[i]*P.slMinAtr,(hi+A[i]*P.stopPadAtr)-en);
+    const slDist=Math.min(structuralStop,A[i]*P.slCapAtr);if(!(slDist>0))continue;
+    const midDistance=side==='BUY'?mid-en:en-mid;
+    const targetDist=Math.min(midDistance,slDist*P.maxRR),rr=targetDist/slDist;
+    if(!(rr>=P.minRR&&rr<=P.maxRR))continue;
+    const sl=side==='BUY'?en-slDist:en+slDist,tp=side==='BUY'?en+targetDist:en-targetDist;
     for(let j=i+1;j<m5.length;j++){
-      const b=m5[j];
-      const loss=side==='BUY'?b.low<=sl:b.high>=sl;
-      const win=side==='BUY'?b.high>=tp:b.low<=tp;
+      const b=m5[j],loss=side==='BUY'?b.low<=sl:b.high>=sl,win=side==='BUY'?b.high>=tp:b.low<=tp;
       if(loss||win){out.push({time:m5[i+1].timestamp,exitTime:b.timestamp,r:loss?-1:rr,side,name:'GOLD_RANGE_LOOSE_REGIME'});busy=j;break}
-      if(j-i>=18){const mark=side==='BUY'?(b.close-en)/slDist:(en-b.close)/slDist;out.push({time:m5[i+1].timestamp,exitTime:b.timestamp,r:Math.max(-1,Math.min(rr,mark)),side,name:'GOLD_RANGE_LOOSE_REGIME'});busy=j;break}
+      if(j-i>=P.maxBars){const mark=side==='BUY'?(b.close-en)/slDist:(en-b.close)/slDist;out.push({time:m5[i+1].timestamp,exitTime:b.timestamp,r:Math.max(-1,Math.min(rr,mark)),side,name:'GOLD_RANGE_LOOSE_REGIME'});busy=j;break}
     }
   }
   return out;
@@ -85,13 +81,16 @@ function percentile(sorted,p){if(!sorted.length)return 0;const i=Math.min(sorted
 function monteCarlo(T,runs){const rs=T.map(x=>x.r),dds=[],lss=[];for(let k=0;k<runs;k++){const z=ddOfRs(shuffle(rs));dds.push(z.dd);lss.push(z.maxLs);}dds.sort((a,b)=>a-b);lss.sort((a,b)=>a-b);return{runs,dd50:percentile(dds,.50),dd90:percentile(dds,.90),dd95:percentile(dds,.95),dd99:percentile(dds,.99),ddMax:dds[dds.length-1]||0,ls50:percentile(lss,.50),ls90:percentile(lss,.90),ls95:percentile(lss,.95),ls99:percentile(lss,.99),lsMax:lss[lss.length-1]||0};}
 
 (async()=>{
-  console.log('🌊 GOLD RANGE MR — LOOSE REGIME FINAL TEST');
+  console.log('🌊 GOLD RANGE MR — EXACT LOOSE_REGIME FINAL TEST');
+  console.log('✅ Exact variant from V2 stress test; rejection/exit stay BASE');
   console.log(`📅 ${FROM} → ${TO} | Monte Carlo runs=${MC_RUNS}`);
   const raw=await getHistoricalRates({instrument:'xauusd',dates:{from:new Date(FROM+'T00:00:00Z'),to:new Date(TO+'T23:59:59Z')},timeframe:'m5',format:'json',volumes:true,batchSize:10,pauseBetweenBatchesMs:300,useCache:true,cacheFolderPath:'./data/dukascopy-cache'});
   const m5=raw.map(x=>({timestamp:+x.timestamp,open:+x.open,high:+x.high,low:+x.low,close:+x.close,volume:+x.volume||0})).filter(x=>[x.timestamp,x.open,x.high,x.low,x.close].every(Number.isFinite)).sort((a,b)=>a.timestamp-b.timestamp);
   console.log(`✅ M5 ${m5.length}`);
   const T=runLooseRegime(m5);
-  console.log('\n📊 TOTAL\n'+fmt(stats(T)));
+  const S=stats(T);
+  console.log('\n📊 TOTAL\n'+fmt(S));
+  console.log(`\n🔎 STRESS BASELINE CHECK | expected≈110 trades / +49.19R / PF≈2.20 | actual=${S.n} / ${S.net.toFixed(2)}R / PF=${S.pf.toFixed(2)}`);
   console.log('\n📅 YEARLY');const y={};for(const t of T)(y[new Date(t.time).getUTCFullYear()]??=[]).push(t);for(const[k,v]of Object.entries(y))console.log(`${k} | ${fmt(stats(v))}`);
   console.log('\n📈 SIDE SPLIT');for(const side of ['BUY','SELL'])console.log(`${side} | ${fmt(stats(T.filter(x=>x.side===side)))}`);
   const mc=monteCarlo(T,MC_RUNS);
