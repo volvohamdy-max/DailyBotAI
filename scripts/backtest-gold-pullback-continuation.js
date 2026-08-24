@@ -1,7 +1,7 @@
 'use strict';
 require('dotenv').config();
 
-const { getGoldHistoricalCandles } = require('./backtestHistoryV21');
+const { getDukascopyGoldM5 } = require('./dukascopyGoldHistory');
 const strategy = require('../src/services/scalpStrategies/goldPullbackContinuationStrategy');
 
 const HISTORY = Math.max(10000, Math.min(60000, Number(process.env.BACKTEST_HISTORY || 60000)));
@@ -66,7 +66,8 @@ function run(c, p, tpR, from, to) {
 function fmt(s){return `${s.trades} trades | WR ${s.wr.toFixed(1)}% | Net ${s.net>=0?'+':''}${s.net.toFixed(2)}R | PF ${s.pf.toFixed(2)} | DD ${s.dd.toFixed(2)}R | LS ${s.maxLS}`;}
 
 (async()=>{
-  const raw=await getGoldHistoricalCandles('5min',HISTORY);
+  console.log('📥 Loading XAUUSD M5 directly from Dukascopy...');
+  const raw=await getDukascopyGoldM5(HISTORY);
   const c=strategy.normalize(raw);
   const split=Math.floor(c.length*0.70);
   const rows=[];
@@ -79,7 +80,8 @@ function fmt(s){return `${s.trades} trades | WR ${s.wr.toFixed(1)}% | Net ${s.ne
   rows.sort((a,b)=>b.score-a.score);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('GOLD PULLBACK CONTINUATION — RESEARCH');
-  console.log(`XAUUSD M5 | candles=${c.length} | DEV 70% / OOS 30% | spread=$${SPREAD} slip=$${SLIP}`);
+  console.log(`SOURCE=Dukascopy DIRECT XAUUSD | M5 candles=${c.length} | DEV 70% / OOS 30% | spread=$${SPREAD} slip=$${SLIP}`);
+  console.log(`PERIOD=${new Date(c[0].time).toISOString()} -> ${new Date(c[c.length-1].time).toISOString()}`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   for(const x of rows.slice(0,8)){
     console.log(`\nparams=${JSON.stringify(x.p)} TP=${x.tpR}R`);
