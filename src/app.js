@@ -30,6 +30,7 @@ const { startFedLiveNews } = require('./services/fedLiveNewsService');
 const { startDailyNewsBrief } = require('./services/dailyNewsBriefService');
 const { startEconomicReleaseWatch } = require('./services/economicReleaseWatch');
 const { startCryptoNews } = require('./services/cryptoNewsService');
+const { startMarketIntelligence } = require('./services/marketIntelligenceService');
 const languageRouter = require('./utils/languageRouter');
 const registerVirtualPortfolio = require('./commands/virtualPortfolio');
 const { registerStrategyLab } = require('./handlers/myStrategy');
@@ -118,6 +119,7 @@ async function main() {
   startDailyNewsBrief(bot);
   startEconomicReleaseWatch(bot);
   startCryptoNews(bot);
+  startMarketIntelligence(bot);
   console.log('Scheduler started.');
 
   try {
