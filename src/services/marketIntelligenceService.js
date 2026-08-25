@@ -6,10 +6,10 @@ const { translateToArabic } = require('./newsTranslator');
 const { getBoolSetting } = require('../database/adminControl');
 
 const DEFAULT_FEEDS = [
-  { name: 'Reuters Markets', url: 'https://feeds.reuters.com/reuters/businessNews' },
   { name: 'Investing', url: 'https://www.investing.com/rss/news_25.rss' },
   { name: 'FXStreet', url: 'https://www.fxstreet.com/rss/news' },
-  { name: 'Kitco', url: 'https://www.kitco.com/rss/news' }
+  // Kitco changed its old /rss/news endpoint. Keep the current RSS category endpoint.
+  { name: 'Kitco', url: 'https://www.kitco.com/news/category/news/rss' }
 ];
 
 const KEYWORDS = /gold|xau|bullion|dollar|usd|federal reserve|\bfed\b|fomc|powell|interest rate|inflation|cpi|pce|nfp|jobs|employment|treasury|yield|bond|ecb|boe|boj|oil|crude|opec|hormuz|tariff|sanction|trade war|geopolit|war|conflict|bitcoin|crypto/i;
@@ -67,7 +67,7 @@ async function buildMessage(item) {
   return `🌍 <b>Market Intelligence</b>\n\n📰 ${escapeHtml(ar)}\n\n🧠 <b>قراءة السوق</b>\n${escapeHtml(bias(raw))}\n\n🎯 <b>الأصول تحت المراقبة</b>\n${escapeHtml(list.length ? list.join(' • ') : 'الذهب والدولار والأسواق العالمية')}\n\n🔎 المصدر: ${escapeHtml(item.source)}\n⚠️ التحليل إخباري وليس إشارة دخول.\n\n#MarketIntelligence\n@Forexaitrade_bot`;
 }
 async function fetchOne(feed) {
-  const { data } = await axios.get(feed.url, { timeout: 12000, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ForexAIBot/1.0)' }, responseType: 'text' });
+  const { data } = await axios.get(feed.url, { timeout: 12000, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ForexAIBot/1.0)', Accept: 'application/rss+xml, application/xml, text/xml, */*' }, responseType: 'text' });
   return parseFeed(data, feed.name);
 }
 async function collect() {
