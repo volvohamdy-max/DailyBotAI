@@ -6,10 +6,12 @@ const { translateToArabic } = require('./newsTranslator');
 const { getBoolSetting } = require('../database/adminControl');
 
 const DEFAULT_FEEDS = [
-  { name: 'Investing', url: 'https://www.investing.com/rss/news_25.rss' },
+  { name: 'Investing Forex', url: 'https://www.investing.com/rss/news_1.rss' },
+  { name: 'Investing Commodities', url: 'https://www.investing.com/rss/news_11.rss' },
   { name: 'FXStreet', url: 'https://www.fxstreet.com/rss/news' },
-  // Kitco changed its old /rss/news endpoint. Keep the current RSS category endpoint.
-  { name: 'Kitco', url: 'https://www.kitco.com/news/category/news/rss' }
+  // Kitco's RSS-category URL currently renders an HTML shell instead of RSS items.
+  // Use the live news page and parse its article JSON/links as a dedicated fallback.
+  { name: 'Kitco', url: 'https://www.kitco.com/news', type: 'kitco-html' }
 ];
 
 const KEYWORDS = /gold|xau|bullion|dollar|usd|federal reserve|\bfed\b|fomc|powell|interest rate|inflation|cpi|pce|nfp|jobs|employment|treasury|yield|bond|ecb|boe|boj|oil|crude|opec|hormuz|tariff|sanction|trade war|geopolit|war|conflict|bitcoin|crypto/i;
@@ -19,7 +21,7 @@ function feeds() {
   const custom = String(process.env.MARKET_INTELLIGENCE_FEEDS || '').split(',').map(x => x.trim()).filter(Boolean);
   return custom.length ? custom.map((url, i) => ({ name: `Feed ${i + 1}`, url })) : DEFAULT_FEEDS;
 }
-function decode(s) { return String(s || '').replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim(); }
+function decode(s) { return String(s || '').replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ').replace(/&apos;/g, "'").replace(/&ndash;|&#8211;/g, '–').replace(/&mdash;|&#8212;/g, '—').replace(/\s+/g, ' ').trim(); }
 function tag(block, name) { const m = block.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)<\\/${name}>`, 'i')); return m ? decode(m[1]) : ''; }
 function parseFeed(xml, source) {
   const out = [];
@@ -31,6 +33,43 @@ function parseFeed(xml, source) {
     const linkMatch = b.match(/<link[^>]*(?:href=["']([^"']+)["'])?[^>]*>([^<]*)<\/link>|<link[^>]*href=["']([^"']+)["'][^>]*\/?>/i);
     const link = decode(linkMatch?.[1] || linkMatch?.[2] || linkMatch?.[3] || '');
     if (title) out.push({ source, title, description, published, link });
+  }
+  return out;
+}
+function parseKitcoHtml(html) {
+  const text = String(html || '');
+  const out = [];
+  const seenLinks = new Set();
+
+  // Kitco exposes article URLs/titles in the server-rendered page/Next payload.
+  // Match both escaped JSON URLs and ordinary anchor hrefs without depending on CSS classes.
+  const normalized = text.replace(/\\u002F/g, '/').replace(/\\\//g, '/').replace(/\\u0026/g, '&');
+  const re = /(?:href=["']|["'](?:url|link|path)["']\s*:\s*["'])(\/news\/article\/[^"'?#<\\]+)["'][^>]*>?([\s\S]{0,700}?)(?=<\/a>|["'](?:url|link|path|title)["']\s*:|$)/gi;
+  let m;
+  while ((m = re.exec(normalized))) {
+    const path = m[1];
+    if (seenLinks.has(path)) continue;
+    const chunk = m[2] || '';
+    let title = '';
+    const jsonTitle = chunk.match(/["']title["']\s*:\s*["']([^"']{15,300})/i);
+    const anchorTitle = chunk.match(/>([^<>]{15,300})<\/a>/i);
+    title = decode(jsonTitle?.[1] || anchorTitle?.[1] || '');
+    if (!title || !KEYWORDS.test(title)) continue;
+    seenLinks.add(path);
+    out.push({ source: 'Kitco', title, description: '', published: '', link: `https://www.kitco.com${path}` });
+    if (out.length >= 30) break;
+  }
+
+  // Secondary extraction for JSON-LD/Next data where title can precede the URL.
+  if (!out.length) {
+    const pairRe = /["'](?:headline|title)["']\s*:\s*["']([^"']{15,300})["'][\s\S]{0,1200}?["'](?:url|link|path)["']\s*:\s*["'](?:https:\/\/www\.kitco\.com)?(\/news\/article\/[^"'?#<\\]+)["']/gi;
+    while ((m = pairRe.exec(normalized))) {
+      const title = decode(m[1]); const path = m[2];
+      if (!KEYWORDS.test(title) || seenLinks.has(path)) continue;
+      seenLinks.add(path);
+      out.push({ source: 'Kitco', title, description: '', published: '', link: `https://www.kitco.com${path}` });
+      if (out.length >= 30) break;
+    }
   }
   return out;
 }
@@ -67,8 +106,8 @@ async function buildMessage(item) {
   return `🌍 <b>Market Intelligence</b>\n\n📰 ${escapeHtml(ar)}\n\n🧠 <b>قراءة السوق</b>\n${escapeHtml(bias(raw))}\n\n🎯 <b>الأصول تحت المراقبة</b>\n${escapeHtml(list.length ? list.join(' • ') : 'الذهب والدولار والأسواق العالمية')}\n\n🔎 المصدر: ${escapeHtml(item.source)}\n⚠️ التحليل إخباري وليس إشارة دخول.\n\n#MarketIntelligence\n@Forexaitrade_bot`;
 }
 async function fetchOne(feed) {
-  const { data } = await axios.get(feed.url, { timeout: 12000, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; ForexAIBot/1.0)', Accept: 'application/rss+xml, application/xml, text/xml, */*' }, responseType: 'text' });
-  return parseFeed(data, feed.name);
+  const { data } = await axios.get(feed.url, { timeout: 12000, headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/124 Safari/537.36', Accept: feed.type === 'kitco-html' ? 'text/html,application/xhtml+xml,*/*' : 'application/rss+xml, application/xml, text/xml, */*', 'Accept-Language': 'en-US,en;q=0.9' }, responseType: 'text' });
+  return feed.type === 'kitco-html' ? parseKitcoHtml(data) : parseFeed(data, feed.name);
 }
 async function collect() {
   const all = [];
@@ -93,7 +132,7 @@ async function checkMarketIntelligence(bot) {
     catch (e) { console.log('Market Intelligence send failed:', e.message); }
   }
 }
-async function seed() { const rows = await collect(); for (const x of rows.slice(-40)) { const k = key(x); if (!seen(k)) mark(k); } }
+async function seed() { const rows = await collect(); for (const x of rows.slice(-60)) { const k = key(x); if (!seen(k)) mark(k); } }
 function startMarketIntelligence(bot) {
   const ms = Number(process.env.MARKET_INTELLIGENCE_INTERVAL_MS) || 3 * 60 * 1000;
   setTimeout(async () => {
