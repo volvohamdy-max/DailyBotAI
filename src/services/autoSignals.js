@@ -6,7 +6,6 @@ const { addTrade, getOpenTrades, markTradeAsFree } = require('../database/trades
 const { canSendFreeSignal, markFreeSignalSent } = require('../database/freeSignalState');
 const { getCandles } = require('./marketService');
 const { calculateTradeLevels } = require('./tradeEngine');
-const { saveSignal } = require('./signalCache');
 const { evaluateScalpEntry } = require('./scalpingEntryEngine');
 const { saveTradeFeatures } = require('../database/adaptiveIntelligence');
 const { publishHiddenSignal } = require('./hiddenSignalService');
@@ -21,34 +20,23 @@ async function processSignalResult(bot, pair, result) {
   if (!result?.signal) return false;
   if (result.signal.action !== 'BUY' && result.signal.action !== 'SELL') return false;
 
-  const confidence = Number(result.signal.confidence);
-  if (!Number.isFinite(confidence)) {
-    console.log(`❌ Invalid AI confidence: ${pair} | ${result.scalpMeta?.strategyLabel || 'UNKNOWN'}`);
-    return false;
-  }
-
-  const minAiConfidence = getNumberSetting('min_ai_confidence', 60);
-  if (pair !== 'XAUUSD' && confidence < minAiConfidence) {
-    console.log(`❌ Auto signal rejected: ${pair} confidence ${confidence}% < ${minAiConfidence}%`);
-    return false;
-  }
-
+  // XAUUSD live policy: a strategy that returns ready=true owns the entry decision.
+  // Do not re-filter validated strategy entries by AI confidence, grade, score or
+  // generic live risk thresholds that were not part of the strategy backtest.
   if (pair === 'XAUUSD' && !result.scalpMeta?.ready) {
     console.log(`🟡 Gold scalp rejected: ${result.scalpMeta?.status || 'NOT_READY'}`);
     return false;
   }
 
-  if (pair === 'XAUUSD' && result.scalpMeta?.ready) {
-    const allowedGrades = new Set(['A+', 'A', 'TECH-A', 'TECH-BREAKOUT']);
-    const grade = String(result.scalpMeta.grade || '').toUpperCase();
-    const score = Number(result.scalpMeta.score || 0);
-    const ai = Number(result.scalpMeta.aiConfidence || 0);
-    if (!allowedGrades.has(grade)) {
-      console.log(`🟡 Gold scalp blocked by grade: ${grade || 'NONE'} | score=${score} | ai=${ai}`);
+  if (pair !== 'XAUUSD') {
+    const confidence = Number(result.signal.confidence);
+    if (!Number.isFinite(confidence)) {
+      console.log(`❌ Invalid AI confidence: ${pair}`);
       return false;
     }
-    if (score < 72) {
-      console.log(`🟡 Gold scalp blocked by score: ${score}/100`);
+    const minAiConfidence = getNumberSetting('min_ai_confidence', 60);
+    if (confidence < minAiConfidence) {
+      console.log(`❌ Auto signal rejected: ${pair} confidence ${confidence}% < ${minAiConfidence}%`);
       return false;
     }
   }
@@ -67,42 +55,27 @@ async function processSignalResult(bot, pair, result) {
       rrTp1: riskDistance > 0 ? Math.abs(tp1 - entry) / riskDistance : null,
       rrTp2: riskDistance > 0 ? Math.abs(tp2 - entry) / riskDistance : null
     };
-    console.log('⚡ Using Gold Scalper 5M levels:', {
+    console.log('⚡ Using strategy-owned Gold levels:', {
       strategy: result.scalpMeta?.strategyLabel,
       entry: levels.entry,
       sl: levels.sl,
       tp1: levels.tp1,
-      tp2: levels.tp2,
-      riskPct: Number(levels.riskPct).toFixed(3) + '%'
+      tp2: levels.tp2
     });
   } else {
     const candles = await getCandles(pair);
     levels = calculateTradeLevels(candles, result.signal.action, pair);
   }
 
-  if (!levels) {
-    console.log(`❌ Auto signal rejected: ${pair} invalid Smart TP/SL levels`);
+  if (!levels || !Number.isFinite(Number(levels.entry)) || !Number.isFinite(Number(levels.sl))) {
+    console.log(`❌ Auto signal rejected: ${pair} invalid entry/SL levels`);
     return false;
-  }
-
-  if (pair === 'XAUUSD' && Number(levels.riskPct) > getNumberSetting('gold_max_risk_pct', 0.35)) {
-    console.log(`❌ Auto signal rejected: ${pair} stop too wide for scalp (${Number(levels.riskPct).toFixed(3)}%)`);
-    return false;
-  }
-
-  if (pair === 'XAUUSD' && Number.isFinite(Number(levels.riskDistance))) {
-    const atr = Number(result.scalpMeta?.atr5 || result.indicators?.atr || 0);
-    const maxStopDistance = Number.isFinite(atr) && atr > 0 ? Math.max(atr * 1.80, 8.0) : 8.0;
-    if (Number(levels.riskDistance) > maxStopDistance) {
-      console.log(`🟡 Gold scalp blocked: SL distance ${Number(levels.riskDistance).toFixed(2)} > max ${maxStopDistance.toFixed(2)}`);
-      return false;
-    }
   }
 
   let scalpEntry;
   if (pair === 'XAUUSD' && result.scalpMeta?.ready) {
-    scalpEntry = { status: 'ENTRY_READY', reason: 'GOLD_SCALPER_APPROVED' };
-    console.log(`⚡ XAUUSD bypassed legacy scalp confirmation: ${result.scalpMeta.grade} / ${result.scalpMeta.score}`);
+    scalpEntry = { status: 'ENTRY_READY', reason: 'STRATEGY_READY' };
+    console.log(`⚡ XAUUSD strategy READY accepted directly: ${result.scalpMeta?.strategyLabel || 'GOLD SCALP'}`);
   } else {
     scalpEntry = await evaluateScalpEntry(pair, result.signal.action, result.indicators);
   }
@@ -121,6 +94,7 @@ async function processSignalResult(bot, pair, result) {
   const signalKey = `${pair}:${scalpStrategyId}`;
   const previousSignal = lastSignals[signalKey];
 
+  // Execution safety only: suppress the same setup being delivered repeatedly.
   if (previousSignal) {
     const sameDirection = previousSignal.direction === currentDirection;
     const sameMode = previousSignal.mode === currentMode;
@@ -130,11 +104,12 @@ async function processSignalResult(bot, pair, result) {
     const enoughPriceMovement = priceDistance >= referenceAtr * 0.80;
     const enoughTime = elapsed >= 20 * 60 * 1000;
     if (sameDirection && sameMode && !enoughPriceMovement && !enoughTime) {
-      console.log(`♻️ DUPLICATE GOLD SETUP SKIPPED | ${scalpStrategyId} | ${currentDirection} ${currentMode} | entry=${currentEntry.toFixed(2)} | move=${priceDistance.toFixed(2)} | required=${(referenceAtr * 0.80).toFixed(2)}`);
+      console.log(`♻️ DUPLICATE GOLD SETUP SKIPPED | ${scalpStrategyId} | ${currentDirection} ${currentMode}`);
       return false;
     }
   }
 
+  // Execution safety only: do not duplicate an already-open trade from the same strategy.
   const existingScalpTrade = getOpenTrades().find((trade) => {
     const source = String(trade.telegram_id || '').toUpperCase();
     return source === `VIP_SCALP_${scalpStrategyId}`;
@@ -160,12 +135,8 @@ async function processSignalResult(bot, pair, result) {
     ? `📏 مسافة وقف الخسارة\n${Number(levels.riskDistance).toFixed(2)} دولار`
     : `⚖️ العائد للمخاطرة\nTP1 → 1:${Number(levels.rrTp1).toFixed(2)}\nTP2 → 1:${Number(levels.rrTp2).toFixed(2)}\n\n📏 مسافة وقف الخسارة\n${Number(levels.riskDistance).toFixed(2)}`;
 
-  const gradeMap = { 'A+': '🔥 قوية جدًا', 'A': '✅ قوية', 'TECH-A': '🧠 فنية مؤكدة', 'TECH-BREAKOUT': '🚀 اختراق فني قوي' };
-  const quality = gradeMap[result.scalpMeta?.grade] || '✅ قوية';
-  const message = `\n⚡ إشارة سكالب — ${result.scalpMeta?.strategyLabel || 'Gold Scalp'}\n\n🥇 الزوج: ${pair}\n\n📈 الاتجاه: ${result.signal.action}\n\n📍 منطقة الدخول\n\n${entryFrom.toFixed(2)} ➜ ${entryTo.toFixed(2)}\n\n🛑 وقف الخسارة\n${Number(levels.sl).toFixed(2)}\n\n${targetBlock}\n\n🤖 ثقة التحليل AI\n${Number(result.scalpMeta?.aiConfidence) > 0 ? `${Math.round(Number(result.scalpMeta.aiConfidence))}%` : 'غير متاحة'}\n\n${pair === 'XAUUSD' && result.scalpMeta?.ready ? `⚡ نوع الإشارة: ${result.scalpMeta?.strategyLabel || 'Gold Scalp'}\n🏅 جودة الفرصة: ${quality}\n⭐ Scalp Score: ${result.scalpMeta.score}/100\n⏱️ الفريم التنفيذي: 5M` : ''}\n\n📊 ATR\n${atr.toFixed(2)}\n\n${riskBlock}\n`;
+  const message = `\n⚡ إشارة سكالب — ${result.scalpMeta?.strategyLabel || 'Gold Scalp'}\n\n🥇 الزوج: ${pair}\n\n📈 الاتجاه: ${result.signal.action}\n\n📍 منطقة الدخول\n\n${entryFrom.toFixed(2)} ➜ ${entryTo.toFixed(2)}\n\n🛑 وقف الخسارة\n${Number(levels.sl).toFixed(2)}\n\n${targetBlock}\n\n⚡ قرار الدخول: شروط الاستراتيجية مكتملة\n⏱️ الفريم التنفيذي: 5M\n\n📊 ATR\n${atr.toFixed(2)}\n\n${riskBlock}\n`;
 
-  // A live trade is not committed until the VIP channel has actually received it.
-  // This prevents silent open trades when Telegram/configuration is unavailable.
   if (!config.vipChannelId) {
     console.log(`❌ LIVE SIGNAL ABORTED | ${pair} | ${scalpStrategyId} | VIP_CHANNEL_ID is not configured`);
     return false;
@@ -195,7 +166,6 @@ async function processSignalResult(bot, pair, result) {
     return false;
   }
 
-  // Only a successfully delivered + recorded signal participates in duplicate suppression.
   lastSignals[signalKey] = {
     direction: currentDirection,
     mode: currentMode,
