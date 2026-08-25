@@ -57,9 +57,6 @@ async function scan() {
   const entry=finite(liveRaw);
   if (entry===null) return wait('SWEEP5_NO_LIVE_PRICE');
 
-  // Backtest enters next M5 open. Keep live execution close to the validated signal close.
-  if (Math.abs(entry-close) > atr5*0.30) return wait('SWEEP5_ENTRY_GAP_TOO_LARGE', { entry, signalClose:close, atr5 });
-
   const stopLoss=entry+CONFIG.slUsd;
   const target=entry-CONFIG.tpUsd;
   return {
