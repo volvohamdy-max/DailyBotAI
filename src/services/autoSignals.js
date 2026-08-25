@@ -144,40 +144,6 @@ async function processSignalResult(bot, pair, result) {
     return false;
   }
 
-  lastSignals[signalKey] = {
-    direction: currentDirection,
-    mode: currentMode,
-    entry: currentEntry,
-    atr: currentAtr,
-    time: now
-  };
-
-  const tradeInsert = addTrade({
-    telegram_id: `VIP_SCALP_${scalpStrategyId}`,
-    pair,
-    action: result.signal.action,
-    entry: levels.entry,
-    stop_loss: levels.sl,
-    target1: levels.tp1,
-    target2: levels.tp2
-  });
-  const tradeId = Number(tradeInsert?.lastInsertRowid || 0);
-
-  if (tradeId > 0) {
-    try {
-      const power = evaluatePowerTrade({ tradeId, pair, action: result.signal.action, result });
-      if (power.qualified) console.log(`⚡ POWER TRADE ${power.grade} | ${pair} | Score ${power.powerScore}/100 | Trade #${tradeId}`);
-    } catch (error) {
-      console.log('Power Trade classification error:', error.message);
-    }
-    try {
-      saveTradeFeatures({ tradeId, pair, action: result.signal.action, indicators: result.indicators || {}, scalpMeta: result.scalpMeta || {} });
-      console.log(`🧠 Adaptive snapshot saved | Trade ${tradeId}`);
-    } catch (error) {
-      console.log('⚠️ Adaptive snapshot save failed:', error.message);
-    }
-  }
-
   const livePrice = Number(levels.entry);
   const atr = Number(result.indicators?.atr || 4);
   let zone = atr * 0.75;
@@ -198,25 +164,67 @@ async function processSignalResult(bot, pair, result) {
   const quality = gradeMap[result.scalpMeta?.grade] || '✅ قوية';
   const message = `\n⚡ إشارة سكالب — ${result.scalpMeta?.strategyLabel || 'Gold Scalp'}\n\n🥇 الزوج: ${pair}\n\n📈 الاتجاه: ${result.signal.action}\n\n📍 منطقة الدخول\n\n${entryFrom.toFixed(2)} ➜ ${entryTo.toFixed(2)}\n\n🛑 وقف الخسارة\n${Number(levels.sl).toFixed(2)}\n\n${targetBlock}\n\n🤖 ثقة التحليل AI\n${Number(result.scalpMeta?.aiConfidence) > 0 ? `${Math.round(Number(result.scalpMeta.aiConfidence))}%` : 'غير متاحة'}\n\n${pair === 'XAUUSD' && result.scalpMeta?.ready ? `⚡ نوع الإشارة: ${result.scalpMeta?.strategyLabel || 'Gold Scalp'}\n🏅 جودة الفرصة: ${quality}\n⭐ Scalp Score: ${result.scalpMeta.score}/100\n⏱️ الفريم التنفيذي: 5M` : ''}\n\n📊 ATR\n${atr.toFixed(2)}\n\n${riskBlock}\n`;
 
-  const users = allUsers();
-  if (config.vipChannelId) {
-    try {
-      await bot.telegram.sendMessage(config.vipChannelId, message);
-      console.log(`💎 VIP SIGNAL SENT | ${pair} | ${scalpStrategyId} | Trade #${tradeId}`);
-    } catch (e) {
-      console.log(`❌ VIP signal send failed ${pair}:`, e.message);
-    }
-  } else {
-    console.log('❌ VIP_CHANNEL_ID is not configured');
+  // A live trade is not committed until the VIP channel has actually received it.
+  // This prevents silent open trades when Telegram/configuration is unavailable.
+  if (!config.vipChannelId) {
+    console.log(`❌ LIVE SIGNAL ABORTED | ${pair} | ${scalpStrategyId} | VIP_CHANNEL_ID is not configured`);
+    return false;
   }
 
+  try {
+    await bot.telegram.sendMessage(config.vipChannelId, message);
+    console.log(`💎 VIP SIGNAL DELIVERED | ${pair} | ${scalpStrategyId}`);
+  } catch (e) {
+    console.log(`❌ LIVE SIGNAL ABORTED | ${pair} | ${scalpStrategyId} | VIP delivery failed: ${e.message}`);
+    return false;
+  }
+
+  const tradeInsert = addTrade({
+    telegram_id: `VIP_SCALP_${scalpStrategyId}`,
+    pair,
+    action: result.signal.action,
+    entry: levels.entry,
+    stop_loss: levels.sl,
+    target1: levels.tp1,
+    target2: levels.tp2
+  });
+  const tradeId = Number(tradeInsert?.lastInsertRowid || 0);
+
+  if (tradeId <= 0) {
+    console.log(`⚠️ VIP received signal but trade DB insert was blocked/failed | ${pair} | ${scalpStrategyId}`);
+    return false;
+  }
+
+  // Only a successfully delivered + recorded signal participates in duplicate suppression.
+  lastSignals[signalKey] = {
+    direction: currentDirection,
+    mode: currentMode,
+    entry: currentEntry,
+    atr: currentAtr,
+    time: now
+  };
+
+  try {
+    const power = evaluatePowerTrade({ tradeId, pair, action: result.signal.action, result });
+    if (power.qualified) console.log(`⚡ POWER TRADE ${power.grade} | ${pair} | Score ${power.powerScore}/100 | Trade #${tradeId}`);
+  } catch (error) {
+    console.log('Power Trade classification error:', error.message);
+  }
+  try {
+    saveTradeFeatures({ tradeId, pair, action: result.signal.action, indicators: result.indicators || {}, scalpMeta: result.scalpMeta || {} });
+    console.log(`🧠 Adaptive snapshot saved | Trade ${tradeId}`);
+  } catch (error) {
+    console.log('⚠️ Adaptive snapshot save failed:', error.message);
+  }
+
+  const users = allUsers();
   let freePublicSent = false;
   const freeEligible = !isProStrategy && pair === 'XAUUSD' && result.scalpMeta?.ready === true && Number(result.scalpMeta?.score || 0) >= 80 && canSendFreeSignal(24);
   if (freeEligible && config.mainGroupId) {
     try {
       const freeMessage = `🆓 صفقة مجانية من FOREX AI\n━━━━━━━━━━━━━━━━━━\n\n${message}\n\n💎 أعضاء VIP يحصلون على جميع الفرص والتحديثات بشكل مستمر.\n\n⚠️ التحليل آلي ومعلوماتي ولا يضمن نتائج التداول.`;
       await bot.telegram.sendMessage(config.mainGroupId, freeMessage);
-      if (tradeId > 0) markTradeAsFree(tradeId);
+      markTradeAsFree(tradeId);
       markFreeSignalSent();
       freePublicSent = true;
       console.log(`🆓 FREE SIGNAL SENT | Trade ${tradeId}`);
@@ -225,7 +233,7 @@ async function processSignalResult(bot, pair, result) {
     }
   }
 
-  if (!freePublicSent && tradeId > 0) {
+  if (!freePublicSent) {
     try {
       if (isProStrategy) {
         console.log(`🕶️ Hidden public signal skipped for Pro Strategy trade ${tradeId}: RSI-managed exit has no fixed TP targets`);
@@ -252,7 +260,7 @@ async function processSignalResult(bot, pair, result) {
   if (pair === 'XAUUSD' && result.scalpMeta?.ready && typeof result.scalpMeta.markSent === 'function') {
     result.scalpMeta.markSent();
   }
-  console.log(`✅ Signal Sent: ${pair} | ${scalpStrategyId}`);
+  console.log(`✅ LIVE SIGNAL COMMITTED | ${pair} | ${scalpStrategyId} | Trade #${tradeId}`);
   return true;
 }
 
@@ -264,40 +272,31 @@ async function scanMarket(bot) {
 
   await scanGoldH4MeanReversion(bot);
   const scanStart = Date.now();
-  console.log('🚀 SCAN START:', new Date().toLocaleTimeString());
+  console.log('🚀 SCAN START:', new Date(scanStart).toLocaleTimeString());
   console.log('🚨 AUTO SIGNALS FILE IS RUNNING');
   console.log('🔍 Scanning Market...');
 
   for (const pair of PAIRS) {
     try {
-      const bundle = pair === 'XAUUSD' ? await buildGoldScalpResult() : await analyzePair(pair);
-      console.log('🧠 SIGNAL DEBUG:', JSON.stringify({ pair, signal: bundle.signal, indicators: bundle.indicators, readyCount: bundle.readySignalResults?.length || 0 }, null, 2));
-      console.log('🧠 ANALYSIS RESULT:', JSON.stringify(bundle, null, 2));
-      saveSignal(pair, bundle);
-      console.log('AI RESULT:', pair, bundle);
-
-      const signalResults = pair === 'XAUUSD' && Array.isArray(bundle.readySignalResults) && bundle.readySignalResults.length
-        ? bundle.readySignalResults
-        : [bundle];
-
-      if (pair === 'XAUUSD' && signalResults.length > 1) {
-        console.log(`🔥 MULTI GOLD READY: ${signalResults.length} strategies | processing ALL independently`);
+      let result;
+      if (pair === 'XAUUSD') {
+        const baseAnalysis = await analyzePair(pair);
+        result = await buildGoldScalpResult(baseAnalysis);
+      } else {
+        result = await analyzePair(pair);
       }
 
-      for (const result of signalResults) {
-        try {
-          await processSignalResult(bot, pair, result);
-        } catch (error) {
-          console.log(`❌ Strategy processing failed ${result?.scalpMeta?.strategyId || pair}:`, error.message);
-        }
-      }
-    } catch (e) {
-      console.log(pair, e.message);
+      if (!result?.signal) continue;
+      await processSignalResult(bot, pair, result);
+    } catch (error) {
+      console.log(`❌ Auto signal scan error ${pair}:`, error.message);
     }
   }
 
-  console.log(`⏱️ SCAN DURATION: ${((Date.now() - scanStart) / 1000).toFixed(1)} seconds`);
-  console.log('✅ Market Scan Finished');
+  console.log(`✅ Auto Signals finished in ${Date.now() - scanStart}ms`);
 }
 
-module.exports = { scanMarket };
+module.exports = {
+  scanMarket,
+  processSignalResult
+};
