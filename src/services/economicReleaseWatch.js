@@ -4,7 +4,7 @@ const config = require('../config');
 const { getMultiSourceCalendar, eventHash, isHighImpact } = require('./newsCalendarGate');
 const { translateToArabic } = require('./newsTranslator');
 const { refreshDailyNewsBrief } = require('./dailyNewsBriefService');
-const { getInvestingFallback } = require('./investingFallback');
+const { getInvestingFallback, validEconomicValue } = require('./investingFallback');
 
 const IMPORTANT = new Set(['USD','EUR','GBP','JPY','CHF']);
 const TZ = 'Africa/Cairo';
@@ -29,10 +29,13 @@ function ensurePendingTable() {
   `).run();
 }
 
+// One strict validator is shared with the Investing fallback. Release alerts
+// must contain a compact economic value, never article prose containing digits.
 function validActual(v) {
-  if (v == null) return false;
-  const s = String(v).trim();
-  return Boolean(s && s !== '-' && s.length <= 80 && /[-+]?\d/.test(s));
+  return validEconomicValue(v);
+}
+function safeEconomicValue(v) {
+  return validEconomicValue(v) ? String(v).trim() : '-';
 }
 function seen(k) { return Boolean(db.prepare('SELECT 1 FROM news_alerts WHERE news_id=?').get(k)); }
 function mark(k) { db.prepare('INSERT OR IGNORE INTO news_alerts(news_id,alert_sent) VALUES(?,1)').run(k); }
@@ -80,7 +83,7 @@ async function arabicTitle(title) {
   catch { return String(title || 'خبر اقتصادي'); }
 }
 function num(v) {
-  if (v == null) return null;
+  if (!validEconomicValue(v)) return null;
   const m = String(v).replace(/,/g,'').match(/[-+]?\d+(?:\.\d+)?/);
   return m ? Number(m[0]) : null;
 }
@@ -140,8 +143,8 @@ function snapshotFiveMinuteAlerts(events, now) {
       cur,
       String(e.title || 'Economic event'),
       new Date(ts).toISOString(),
-      e.forecast == null ? null : String(e.forecast),
-      e.previous == null ? null : String(e.previous)
+      validEconomicValue(e.forecast) ? String(e.forecast) : null,
+      validEconomicValue(e.previous) ? String(e.previous) : null
     );
   }
 }
@@ -201,18 +204,23 @@ async function enrichPending(row, events) {
     currency: row.currency,
     title: row.title,
     date: row.event_time,
-    forecast: row.forecast,
-    previous: row.previous,
+    forecast: validEconomicValue(row.forecast) ? row.forecast : null,
+    previous: validEconomicValue(row.previous) ? row.previous : null,
     impact: 'high'
   };
+  // Never preserve a poisoned provider Actual while trying the fallback.
+  if (!validActual(base.actual)) base.actual = null;
+  if (!validEconomicValue(base.forecast)) base.forecast = null;
+  if (!validEconomicValue(base.previous)) base.previous = null;
+
   const ageMin = (Date.now() - new Date(row.event_time).getTime()) / 60000;
   if (ageMin >= 1) {
     try {
       const fallback = await getInvestingFallback(base);
       if (fallback) {
-        base.actual = fallback.actual ?? base.actual;
-        base.forecast = fallback.forecast ?? base.forecast;
-        base.previous = fallback.previous ?? base.previous;
+        base.actual = validActual(fallback.actual) ? fallback.actual : null;
+        base.forecast = validEconomicValue(fallback.forecast) ? fallback.forecast : base.forecast;
+        base.previous = validEconomicValue(fallback.previous) ? fallback.previous : base.previous;
       }
     } catch (error) {
       console.log(`⚠️ Pending Investing fallback failed: ${row.title} | ${error.message}`);
@@ -229,15 +237,22 @@ function completePending(row) {
 
 async function sendRelease(bot, e, releaseHash) {
   const key = `news_released_${releaseHash}`;
-  if (seen(key) || !validActual(e.actual)) return false;
+  if (seen(key)) return false;
+  if (!validActual(e.actual)) {
+    console.log(`🛡️ NEWS RELEASE BLOCKED invalid Actual: ${e.title} | ${e.currency} | value=${String(e.actual ?? '').slice(0,80)}`);
+    return false;
+  }
   const imp = impact(e) === 'medium' ? 'medium' : 'high';
   const title = await arabicTitle(e.title);
   const stars = imp === 'high' ? '⭐⭐⭐' : '⭐⭐';
   const icon = imp === 'high' ? '🔴' : '🟠';
-  const msg = `${icon} <b>صدر الآن :</b>\n\n💠 <b>${countryName(e)} - ${flag(e)}</b>\n\n🔵 <b>${title}</b>\n\n🔖 درجة الأهمية ${stars}\n\n🕒 السابق : ${e.previous ?? '-'}\n🕞 التقدير : ${e.forecast ?? '-'}\n🕓 الحالي : <b>${e.actual}</b>\n\n👈 النتيجة : ${interpretation(e)}\n\n━━━━━━━━━━━━━━\n\n#ForexNews #EconomicNews\n@Forexaitrade_bot`;
+  const previous = safeEconomicValue(e.previous);
+  const forecast = safeEconomicValue(e.forecast);
+  const actual = safeEconomicValue(e.actual);
+  const msg = `${icon} <b>صدر الآن :</b>\n\n💠 <b>${countryName(e)} - ${flag(e)}</b>\n\n🔵 <b>${title}</b>\n\n🔖 درجة الأهمية ${stars}\n\n🕒 السابق : ${previous}\n🕞 التقدير : ${forecast}\n🕓 الحالي : <b>${actual}</b>\n\n👈 النتيجة : ${interpretation({ ...e, actual, forecast, previous })}\n\n━━━━━━━━━━━━━━\n\n#ForexNews #EconomicNews\n@Forexaitrade_bot`;
   await bot.telegram.sendMessage(String(config.mainGroupId), msg, { parse_mode:'HTML', disable_web_page_preview:true });
   mark(key);
-  console.log(`📣 Economic release sent: ${e.title} | ${e.currency} | ${imp} | Actual=${e.actual}`);
+  console.log(`📣 Economic release sent: ${e.title} | ${e.currency} | ${imp} | Actual=${actual}`);
   return true;
 }
 
@@ -253,9 +268,6 @@ async function cycle(bot) {
     snapshotFiveMinuteAlerts(cal.data || [], now);
     let pendingRows = getPendingRows(now);
 
-    // Normal release discovery. If this event corresponds to a persisted 5m
-    // warning, use the original pending hash so title/time changes cannot
-    // create a second release alert.
     for (const e of cal.data || []) {
       const cur = String(e.currency || '').toUpperCase();
       if (!IMPORTANT.has(cur)) continue;
@@ -272,16 +284,11 @@ async function cycle(bot) {
 
       if (pending && seen(`news_released_${releaseHash}`)) {
         completePending(pending);
-        // Also mark the provider's current hash to suppress any other legacy
-        // release path that sees the renamed/rescheduled event.
         mark(`news_released_${eventHash(e)}`);
       }
     }
 
     pendingRows = getPendingRows(now);
-
-    // Guaranteed follow-up lane for every HIGH event that had a 5-minute
-    // warning. Retry for up to NEWS_PENDING_TTL_MINUTES (default 6 hours).
     for (const row of pendingRows) {
       const releasedKey = `news_released_${row.event_hash}`;
       if (seen(releasedKey)) { completePending(row); continue; }
@@ -289,16 +296,15 @@ async function cycle(bot) {
       touchPending(row);
       const e = await enrichPending(row, cal.data || []);
       if (!validActual(e.actual)) {
-        console.log(`⏳ Pending release waiting Actual: ${row.title} | ${row.currency} | attempt=${Number(row.attempts || 0) + 1}`);
+        console.log(`⏳ Pending release waiting valid Actual: ${row.title} | ${row.currency} | attempt=${Number(row.attempts || 0) + 1}`);
         continue;
       }
 
       if (await sendRelease(bot, e, row.event_hash)) {
         completePending(row);
-        // If we matched a current provider event, suppress its current hash too.
         if (e.date && e.title) mark(`news_released_${eventHash(e)}`);
         sentAny = true;
-        console.log(`✅ Pending 5m alert completed with Actual: ${row.title} | ${row.currency}`);
+        console.log(`✅ Pending 5m alert completed with valid Actual: ${row.title} | ${row.currency}`);
       }
     }
 
@@ -314,7 +320,7 @@ function startEconomicReleaseWatch(bot) {
   ensurePendingTable();
   cron.schedule('* * * * *', () => cycle(bot), { timezone: TZ });
   setTimeout(() => cycle(bot), 15000);
-  console.log(`📣 Economic release watch every 1 minute | HIGH+MEDIUM | 5m alerts persisted | pending TTL=${PENDING_TTL_MINUTES}m | syncs pinned daily brief`);
+  console.log(`📣 Economic release watch every 1 minute | HIGH+MEDIUM | strict numeric release validation | pending TTL=${PENDING_TTL_MINUTES}m | syncs pinned daily brief`);
 }
 
 module.exports = { startEconomicReleaseWatch, cycle };
