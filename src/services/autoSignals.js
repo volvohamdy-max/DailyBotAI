@@ -2,7 +2,7 @@ const { analyzePair } = require('./analysisGate');
 const { buildGoldScalpResult } = require('./goldScalper');
 const { scanGoldH4MeanReversion } = require('./goldH4MeanReversion');
 const { allUsers } = require('../database/users');
-const { addTrade, getOpenTrades, markTradeAsFree } = require('../database/trades');
+const { addTrade, getOpenTrades, markTradeAsFree, updateTradeStatus } = require('../database/trades');
 const { canSendFreeSignal, markFreeSignalSent } = require('../database/freeSignalState');
 const { getCandles } = require('./marketService');
 const { calculateTradeLevels } = require('./tradeEngine');
@@ -69,10 +69,27 @@ async function processSignalResult(bot, pair, result) {
   const message = `\n⚡ إشارة سكالب — ${result.scalpMeta?.strategyLabel || 'Gold Scalp'}\n\n🥇 الزوج: ${pair}\n\n📈 الاتجاه: ${result.signal.action}\n\n📍 منطقة الدخول\n\n${entryFrom.toFixed(2)} ➜ ${entryTo.toFixed(2)}\n\n🛑 وقف الخسارة\n${Number(levels.sl).toFixed(2)}\n\n${targetBlock}\n\n⚡ قرار الدخول: شروط الاستراتيجية مكتملة\n⏱️ الفريم التنفيذي: 5M\n\n📊 ATR\n${atr.toFixed(2)}\n\n${riskBlock}\n`;
 
   if (!config.vipChannelId) return false;
-  try { await bot.telegram.sendMessage(config.vipChannelId, message); console.log(`💎 VIP SIGNAL DELIVERED | ${pair} | ${scalpStrategyId}`); } catch(e) { console.log(`❌ LIVE SIGNAL ABORTED | ${pair} | ${scalpStrategyId} | VIP delivery failed: ${e.message}`); return false; }
+
+  // Reserve the portfolio slot BEFORE publishing to VIP. This prevents a signal
+  // from being delivered and then rejected by the MAX2/same-strategy DB guard.
   const tradeInsert = addTrade({ telegram_id:`VIP_SCALP_${scalpStrategyId}`, pair, action:result.signal.action, entry:levels.entry, stop_loss:levels.sl, target1:levels.tp1, target2:levels.tp2 });
   const tradeId = Number(tradeInsert?.lastInsertRowid || 0);
-  if (tradeId <= 0) return false;
+  if (tradeId <= 0) {
+    console.log(`🛡️ LIVE SIGNAL NOT PUBLISHED | ${pair} | ${scalpStrategyId} | portfolio reservation rejected`);
+    return false;
+  }
+
+  try {
+    await bot.telegram.sendMessage(config.vipChannelId, message);
+    console.log(`💎 VIP SIGNAL DELIVERED | ${pair} | ${scalpStrategyId}`);
+  } catch(e) {
+    // Roll back the reservation if Telegram delivery fails so it cannot occupy
+    // one of the two validated portfolio slots as a phantom open trade.
+    try { updateTradeStatus(tradeId, 'closed'); } catch (rollbackError) { console.log(`⚠️ Trade rollback failed #${tradeId}: ${rollbackError.message}`); }
+    console.log(`❌ LIVE SIGNAL ABORTED | ${pair} | ${scalpStrategyId} | VIP delivery failed: ${e.message}`);
+    return false;
+  }
+
   lastSignals[signalKey] = { direction:currentDirection, mode:currentMode, entry:currentEntry, atr:currentAtr, time:now };
   try { const power=evaluatePowerTrade({tradeId,pair,action:result.signal.action,result}); if(power.qualified) console.log(`⚡ POWER TRADE ${power.grade} | ${pair} | Score ${power.powerScore}/100 | Trade #${tradeId}`); } catch(e) {}
   try { saveTradeFeatures({tradeId,pair,action:result.signal.action,indicators:result.indicators||{},scalpMeta:result.scalpMeta||{}}); console.log(`🧠 Adaptive snapshot saved | Trade ${tradeId}`); } catch(e) { console.log('⚠️ Adaptive snapshot save failed:',e.message); }
