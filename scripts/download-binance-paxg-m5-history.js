@@ -1,0 +1,7 @@
+#!/usr/bin/env node
+'use strict';
+const axios=require('axios'),fs=require('fs'),path=require('path');
+const FROM=process.argv[2]||'2025-08-24',TO=process.argv[3]||'2026-08-24';
+const OUT=path.resolve(`data/paxg-m5-${FROM}-${TO}.json`),STEP=5*60*1000;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{let cursor=Date.parse(FROM+'T00:00:00Z'),end=Date.parse(TO+'T23:59:59Z'),rows=[];console.log(`🪙 Binance PAXGUSDT M5 ${FROM} → ${TO}`);while(cursor<=end){const {data}=await axios.get('https://api.binance.com/api/v3/klines',{params:{symbol:'PAXGUSDT',interval:'5m',startTime:cursor,endTime:end,limit:1000},timeout:20000});if(!Array.isArray(data)||!data.length)break;for(const r of data){const x={timestamp:+r[0],open:+r[1],high:+r[2],low:+r[3],close:+r[4],volume:+r[5]||0};if(x.timestamp>=Date.parse(FROM+'T00:00:00Z')&&x.timestamp<=end)rows.push(x)}const next=+data.at(-1)[0]+STEP;if(next<=cursor)break;cursor=next;process.stdout.write(`\r📥 ${rows.length} candles`);await sleep(120)}const m=new Map(rows.map(x=>[x.timestamp,x]));rows=[...m.values()].sort((a,b)=>a.timestamp-b.timestamp);fs.mkdirSync(path.dirname(OUT),{recursive:true});fs.writeFileSync(OUT,JSON.stringify(rows));console.log(`\n✅ Saved ${rows.length} M5 candles → ${OUT}`);})().catch(e=>{console.error('\n❌',e?.response?.data||e.message||e);process.exit(1)});
