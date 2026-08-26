@@ -5,10 +5,11 @@ const proStrategy = require('./scalpStrategies/proStrategy');
 const goldRangeMrStrategy = require('./scalpStrategies/goldRangeMrStrategy');
 const goldRapidScalpStrategy = require('./scalpStrategies/goldRapidScalpStrategy');
 const goldSweep5Strategy = require('./scalpStrategies/goldSweep5Strategy');
+const goldExhaustionV3Strategy = require('./scalpStrategies/goldExhaustionV3Strategy');
 const { getGoldCandlesResilient } = require('./goldCandleRecovery');
 
 grokGold92Strategy.CONFIG.sessionsUTC = [[0, 24]];
-const STRATEGIES = [goldRapidScalpStrategy, grokGold92Strategy, proStrategy, goldRangeMrStrategy, goldSweep5Strategy];
+const STRATEGIES = [goldExhaustionV3Strategy, goldRapidScalpStrategy, grokGold92Strategy, proStrategy, goldRangeMrStrategy, goldSweep5Strategy];
 
 function finiteOrNull(value) { if (value === null || value === undefined || value === '') return null; const n=Number(value); return Number.isFinite(n)?n:null; }
 function firstFiniteFrom(waits,keys){for(const wait of waits)for(const key of keys){const value=finiteOrNull(wait?.[key]);if(value!==null)return value;}return null;}
