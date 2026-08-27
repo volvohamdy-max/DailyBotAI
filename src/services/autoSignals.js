@@ -2,7 +2,7 @@ const { analyzePair } = require('./analysisGate');
 const { buildGoldScalpResult } = require('./goldScalper');
 const { scanGoldH4MeanReversion } = require('./goldH4MeanReversion');
 const { allUsers } = require('../database/users');
-const { addTrade, getOpenTrades, markTradeAsFree } = require('../database/trades');
+const { addTrade, getOpenTrades, markTradeAsFree, updateTradeStatus } = require('../database/trades');
 const { canSendFreeSignal, markFreeSignalSent } = require('../database/freeSignalState');
 const { getCandles } = require('./marketService');
 const { calculateTradeLevels } = require('./tradeEngine');
@@ -100,7 +100,10 @@ async function processSignalResult(bot, pair, result) {
 
   const vipDelivered = await sendVipSignal(bot, message, pair, scalpStrategyId);
   if (!vipDelivered) {
-    console.log(`⚠️ VIP SIGNAL MISSED BUT TRADE STAYS OPEN | ${pair} | ${scalpStrategyId} | Trade #${tradeId} | Trade Monitor will continue`);
+    updateTradeStatus(tradeId, 'closed');
+    console.log(`🚫 VIP SIGNAL ABORTED | ${pair} | ${scalpStrategyId} | Trade #${tradeId} closed because entry message was not delivered`);
+    console.log(`🔁 Setup remains eligible for a later scan; no TP/SL result can be sent for this undelivered trade`);
+    return false;
   }
 
   lastSignals[signalKey] = { direction:currentDirection, mode:currentMode, entry:currentEntry, atr:currentAtr, time:now };
