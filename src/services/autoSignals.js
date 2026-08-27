@@ -2,7 +2,7 @@ const { analyzePair } = require('./analysisGate');
 const { buildGoldScalpResult } = require('./goldScalper');
 const { scanGoldH4MeanReversion } = require('./goldH4MeanReversion');
 const { allUsers } = require('../database/users');
-const { addTrade, getOpenTrades, markTradeAsFree, updateTradeStatus } = require('../database/trades');
+const { addTrade, getOpenTrades, markTradeAsFree } = require('../database/trades');
 const { canSendFreeSignal, markFreeSignalSent } = require('../database/freeSignalState');
 const { getCandles } = require('./marketService');
 const { calculateTradeLevels } = require('./tradeEngine');
@@ -15,6 +15,7 @@ const { getBoolSetting, getNumberSetting } = require('../database/adminControl')
 
 const PAIRS = ['XAUUSD'];
 let lastSignals = {};
+const pendingVipSignals = new Map();
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function sendVipSignal(bot, message, pair, strategyId) {
@@ -37,6 +38,24 @@ async function sendVipSignal(bot, message, pair, strategyId) {
     }
   }
   return false;
+}
+
+async function retryPendingVipSignals(bot) {
+  if (!pendingVipSignals.size) return;
+  const openIds = new Set(getOpenTrades().map(t => Number(t.id)));
+  for (const [tradeId, pending] of pendingVipSignals.entries()) {
+    if (!openIds.has(Number(tradeId))) {
+      pendingVipSignals.delete(tradeId);
+      console.log(`🧹 PENDING VIP ENTRY REMOVED | Trade #${tradeId} is no longer open`);
+      continue;
+    }
+    console.log(`🔁 RETRYING PENDING VIP ENTRY | ${pending.pair} | ${pending.strategyId} | Trade #${tradeId}`);
+    const delivered = await sendVipSignal(bot, pending.message, pending.pair, pending.strategyId);
+    if (delivered) {
+      pendingVipSignals.delete(tradeId);
+      console.log(`✅ PENDING VIP ENTRY DELIVERED | ${pending.pair} | ${pending.strategyId} | Trade #${tradeId}`);
+    }
+  }
 }
 
 async function processSignalResult(bot, pair, result) {
@@ -100,10 +119,8 @@ async function processSignalResult(bot, pair, result) {
 
   const vipDelivered = await sendVipSignal(bot, message, pair, scalpStrategyId);
   if (!vipDelivered) {
-    updateTradeStatus(tradeId, 'closed');
-    console.log(`🚫 VIP SIGNAL ABORTED | ${pair} | ${scalpStrategyId} | Trade #${tradeId} closed because entry message was not delivered`);
-    console.log(`🔁 Setup remains eligible for a later scan; no TP/SL result can be sent for this undelivered trade`);
-    return false;
+    pendingVipSignals.set(tradeId, { message, pair, strategyId: scalpStrategyId, createdAt: now });
+    console.log(`⏳ VIP ENTRY PENDING | ${pair} | ${scalpStrategyId} | Trade #${tradeId} stays OPEN and will be retried on following scans`);
   }
 
   lastSignals[signalKey] = { direction:currentDirection, mode:currentMode, entry:currentEntry, atr:currentAtr, time:now };
@@ -120,6 +137,7 @@ async function processSignalResult(bot, pair, result) {
 
 async function scanMarket(bot) {
   if (!getBoolSetting('auto_signals_enabled', true)) { console.log('⏸️ Auto Signals disabled from Admin Control Center'); return; }
+  await retryPendingVipSignals(bot);
   await scanGoldH4MeanReversion(bot);
   const scanStart=Date.now(); console.log('🚀 SCAN START:',new Date(scanStart).toLocaleTimeString()); console.log('🚨 AUTO SIGNALS FILE IS RUNNING'); console.log('🔍 Scanning Market...');
   for(const pair of PAIRS){try{
