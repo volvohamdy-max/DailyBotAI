@@ -60,7 +60,28 @@ async function runHourlyMarketBiasTrade(bot) {
   }
 
   const confidence = finite(analysis?.signal?.confidence);
-  const message = `🕐 صفقة ميل السوق الساعية\n━━━━━━━━━━━━━━━━━━\n\n🥇 الزوج: #XAUUSD\n📊 ميل السوق: ${direction === 'BUY' ? '📈 BUY' : '📉 SELL'}\n\n💰 الدخول:\n${entry.toFixed(2)}\n\n🛑 وقف الخسارة:\n${sl.toFixed(2)}\n\n🎯 الهدف:\n${tp.toFixed(2)}\n\n📏 SL: $${DISTANCE_USD}\n💵 TP: $${DISTANCE_USD}${confidence == null ? '' : `\n\n🤖 ثقة التحليل: ${confidence.toFixed(0)}%`}\n\n🧪 المصدر: Hourly Market Bias`;
+  const message = [
+    '🕐 صفقة ميل السوق الساعية',
+    '━━━━━━━━━━━━━━━━━━',
+    '',
+    '🥇 الزوج: #XAUUSD',
+    `📊 ميل السوق: ${direction === 'BUY' ? '📈 BUY' : '📉 SELL'}`,
+    '',
+    '💰 الدخول:',
+    entry.toFixed(2),
+    '',
+    '🛑 وقف الخسارة:',
+    sl.toFixed(2),
+    '',
+    '🎯 الهدف:',
+    tp.toFixed(2),
+    '',
+    `📏 SL: $${DISTANCE_USD}`,
+    `💵 TP: $${DISTANCE_USD}`,
+    ...(confidence == null ? [] : ['', `🤖 ثقة التحليل: ${confidence.toFixed(0)}%`]),
+    '',
+    '🧪 المصدر: Hourly Market Bias'
+  ].join('\n');
 
   const chatId = String(config.vipChannelId || '').trim();
   if (!chatId) {
