@@ -10,16 +10,26 @@ const { collectShadowOpportunities } = require('./shadowOpportunityCollector');
 const { monitorShadowTrades } = require('./shadowTradeEngine');
 const { runPersonalizedAlerts } = require('./personalizedAlerts');
 const { runHourlyMarketBiasTrade } = require('./hourlyMarketBiasTrade');
+const { ensureOpenTradesAnnounced } = require('./vipTradeEntryGuard');
 const { checkEconomicNews } = require('./newsService');
 const { checkUpcomingNewsReliable } = require('./reliableUpcomingNews');
 const { refreshDailyNewsBrief } = require('./dailyNewsBriefService');
 
 let scanRunning=false, newsRunning=false, newsBriefRefreshRunning=false, monitorRunning=false;
 let copilotMonitorRunning=false, radarMonitorRunning=false, opportunityTeaserRunning=false, shadowSystemRunning=false;
-let hourlyBiasRunning=false;
+let hourlyBiasRunning=false, vipEntryGuardRunning=false;
 
 function startScheduler(bot) {
   console.log('⏰ Scheduler started');
+
+  // Central safety net: every newly observed OPEN trade in the main trades table
+  // is announced to VIP, regardless of which strategy/service created it.
+  ensureOpenTradesAnnounced(bot).catch(err=>console.log('❌ VIP ENTRY GUARD INIT:',err.message));
+  cron.schedule('*/10 * * * * *', async()=>{
+    if(vipEntryGuardRunning)return;
+    vipEntryGuardRunning=true;
+    try{await ensureOpenTradesAnnounced(bot);}catch(err){console.log('❌ VIP ENTRY GUARD:',err.message);}finally{vipEntryGuardRunning=false;}
+  });
 
   cron.schedule('*/5 * * * *', async()=>{
     if(newsRunning){console.log('⚠️ Previous news check still running');return;}
@@ -48,8 +58,6 @@ function startScheduler(bot) {
     }catch(err){console.log('❌ VIP expiration error:',err.message);}
   });
 
-  // Hourly XAUUSD market-bias trade. Uses the same direction rule as VIP "Check Your Trade".
-  // Each hourly snapshot is independent and may overlap previous hourly trades.
   cron.schedule('0 * * * *', async()=>{
     if(isForexWeekend()){console.log('🌙 Weekend: Hourly Market Bias paused');return;}
     if(hourlyBiasRunning){console.log('⚠️ Previous Hourly Market Bias run still running - skipped');return;}
