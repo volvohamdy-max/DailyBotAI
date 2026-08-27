@@ -404,6 +404,14 @@ async function buildVipTradeCheck(
       analysis?.signal?.confidence || 0
     );
 
+  // Historical Gold validation — Signal Lab.
+  const labResult = await runSignalLab(
+    'XAUUSD',
+    analysis.indicators,
+    direction,
+    { timeframe }
+  );
+
   const sameDirection =
     marketDirection === direction;
 
@@ -526,6 +534,15 @@ TP2 → ${rr2 ? `1:${rr2.toFixed(2)}` : '—'}
 ━━━━━━━━━━━━━━━━━━
 ⭐ Market Score: ${score}/100
 🤖 AI Confidence: ${Number.isFinite(confidence) ? confidence : 0}%
+
+🧪 SIGNAL LAB — GOLD HISTORY
+📚 Similar setups: ${labResult.similarSetups}
+⭐ Historical Score: ${labResult.historicalScore}/100
+🎯 TP1 historical rate: ${labResult.tp1Rate}%
+🏆 TP2 historical rate: ${labResult.tp2Rate}%
+🛑 SL historical rate: ${labResult.slRate}%
+${labResult.approved ? '✅ LAB APPROVED' : '⚠️ LAB NOT APPROVED'}
+
 ⏱️ Analysis timeframe: ${timeframe}
 
 ⚠️ Automated market analysis, not a guarantee of profit.`;
@@ -553,6 +570,15 @@ TP2 → ${rr2 ? `1:${rr2.toFixed(2)}` : '—'}
 ━━━━━━━━━━━━━━━━━━
 ⭐ قوة الصفقة: ${score}/100
 🤖 ثقة AI: ${Number.isFinite(confidence) ? confidence : 0}%
+
+🧪 SIGNAL LAB — تاريخ الذهب
+📚 الحالات التاريخية المشابهة: ${labResult.similarSetups}
+⭐ التقييم التاريخي: ${labResult.historicalScore}/100
+🎯 وصول TP1 تاريخيًا: ${labResult.tp1Rate}%
+🏆 وصول TP2 تاريخيًا: ${labResult.tp2Rate}%
+🛑 وصول SL تاريخيًا: ${labResult.slRate}%
+${labResult.approved ? '✅ معتمد من Signal Lab' : '⚠️ غير معتمد من Signal Lab'}
+
 ⏱️ فريم التحليل: ${timeframe}
 
 ⚠️ تحليل آلي لحالة السوق وليس ضمانًا للربح.`;
@@ -1600,6 +1626,43 @@ Let the bot analyze your decision before entry and compare your direction with t
                 type,
                 direction.toUpperCase()
               );
+
+            // Send approved Signal Lab Gold trade to VIP channel.
+            // buildVipTradeCheck already ran Signal Lab before returning.
+            if (config.vipChannelId) {
+              const approvedByLab =
+                result.includes('✅ معتمد من Signal Lab') ||
+                result.includes('✅ LAB APPROVED');
+
+              if (approvedByLab) {
+                try {
+                  await ctx.telegram.sendMessage(
+                    config.vipChannelId,
+                    `⚡ صفقة ذهب من اختبر صفقتك
+━━━━━━━━━━━━━━━━━━
+
+${result}`
+                  );
+
+                  console.log(
+                    `✅ VIP TRADE CHECK SENT | XAUUSD | ${direction.toUpperCase()} | ${type} | SIGNAL LAB APPROVED`
+                  );
+                } catch (vipError) {
+                  console.log(
+                    '❌ VIP TRADE CHECK SEND ERROR:',
+                    vipError.message
+                  );
+                }
+              } else {
+                console.log(
+                  `🧪 VIP TRADE CHECK BLOCKED | XAUUSD | ${direction.toUpperCase()} | ${type} | SIGNAL LAB NOT APPROVED`
+                );
+              }
+            } else {
+              console.log(
+                '❌ VIP TRADE CHECK | VIP_CHANNEL_ID missing'
+              );
+            }
 
             return ctx.reply(
               result,
