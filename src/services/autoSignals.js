@@ -1,6 +1,5 @@
 const { analyzePair } = require('./analysisGate');
 const { buildGoldScalpResult } = require('./goldScalper');
-const { scanGoldH4MeanReversion } = require('./goldH4MeanReversion');
 const { allUsers } = require('../database/users');
 const { addTrade, getOpenTrades, markTradeAsFree } = require('../database/trades');
 const { canSendFreeSignal, markFreeSignalSent } = require('../database/freeSignalState');
@@ -147,7 +146,6 @@ async function processSignalResult(bot,pair,result) {
 async function scanMarket(bot) {
   if(!getBoolSetting('auto_signals_enabled',true)) { console.log('⏸️ Auto Signals disabled from Admin Control Center'); return; }
   await retryPendingVipSignals(bot);
-  await scanGoldH4MeanReversion(bot);
   const scanStart=Date.now(); console.log('🚀 SCAN START:',new Date(scanStart).toLocaleTimeString()); console.log('🚨 AUTO SIGNALS FILE IS RUNNING'); console.log('🔍 Scanning Market...');
   for(const pair of PAIRS){try{
     let result;
@@ -164,5 +162,4 @@ async function scanMarket(bot) {
   }catch(error){console.log(`❌ Auto signal scan error ${pair}:`,error.message);}}
   console.log(`✅ Auto Signals finished in ${Date.now()-scanStart}ms`);
 }
-
 module.exports={scanMarket,processSignalResult};
