@@ -5,20 +5,75 @@ const config = require('../config');
 
 const SOURCE_PREFIX = 'VIP_HOURLY_MARKET_BIAS';
 const DISTANCE_USD = 5;
+const MIN_AI_CONFIDENCE = 65;
+const MIN_TECH_SCORE = 3;
 
 function finite(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
 
-function getMarketDirection(analysis) {
+// IMPORTANT: this stricter decision logic is used ONLY by the hourly trade.
+// No fallback is allowed: neutral/weak/conflicting analysis means WAIT.
+function getMarketDecision(analysis) {
   const signalAction = String(analysis?.signal?.action || '').toUpperCase();
-  if (signalAction === 'BUY' || signalAction === 'SELL') return signalAction;
+  const technicalDirection = String(analysis?.technicalDirection || '').toUpperCase();
+  const confidence = finite(analysis?.signal?.confidence);
+  const buyScore = finite(analysis?.buyScore) ?? 0;
+  const sellScore = finite(analysis?.sellScore) ?? 0;
+  const adx = finite(analysis?.indicators?.adx);
 
-  const ema20 = finite(analysis?.indicators?.ema20);
-  const ema50 = finite(analysis?.indicators?.ema50);
-  if (ema20 == null || ema50 == null) return 'WAIT';
-  return ema20 >= ema50 ? 'BUY' : 'SELL';
+  const reasons = [];
+
+  if (!['BUY', 'SELL'].includes(technicalDirection)) {
+    reasons.push('no strong technical direction');
+    return { direction: 'WAIT', confidence, buyScore, sellScore, adx, reasons };
+  }
+
+  const technicalScore = technicalDirection === 'BUY' ? buyScore : sellScore;
+  if (technicalScore < MIN_TECH_SCORE) {
+    reasons.push(`technical score ${technicalScore}/4 below ${MIN_TECH_SCORE}`);
+    return { direction: 'WAIT', confidence, buyScore, sellScore, adx, reasons };
+  }
+
+  if (!['BUY', 'SELL'].includes(signalAction)) {
+    reasons.push('AI did not confirm a direction');
+    return { direction: 'WAIT', confidence, buyScore, sellScore, adx, reasons };
+  }
+
+  if (signalAction !== technicalDirection || analysis?.aiDirectionMismatch === true) {
+    reasons.push(`AI/technical conflict ${signalAction}/${technicalDirection}`);
+    return { direction: 'WAIT', confidence, buyScore, sellScore, adx, reasons };
+  }
+
+  if (confidence == null || confidence < MIN_AI_CONFIDENCE || analysis?.lowAIConfidence === true) {
+    reasons.push(`AI confidence ${confidence ?? 0}% below hourly quality filter`);
+    return { direction: 'WAIT', confidence, buyScore, sellScore, adx, reasons };
+  }
+
+  // ADX is already part of analysisService scoring. Here it is used as an
+  // additional hourly quality guard only when available.
+  if (adx != null && adx < 20) {
+    reasons.push(`weak trend ADX ${adx.toFixed(1)}`);
+    return { direction: 'WAIT', confidence, buyScore, sellScore, adx, reasons };
+  }
+
+  reasons.push(`technical ${technicalDirection} ${technicalScore}/4`);
+  reasons.push(`AI confirms ${signalAction} ${confidence}%`);
+  if (adx != null) reasons.push(`ADX ${adx.toFixed(1)}`);
+
+  return {
+    direction: technicalDirection,
+    confidence,
+    buyScore,
+    sellScore,
+    adx,
+    reasons
+  };
+}
+
+function getMarketDirection(analysis) {
+  return getMarketDecision(analysis).direction;
 }
 
 function hourKey(date = new Date()) {
@@ -27,10 +82,11 @@ function hourKey(date = new Date()) {
 
 async function runHourlyMarketBiasTrade(bot) {
   const analysis = await analyzePair('XAUUSD');
-  const direction = getMarketDirection(analysis);
+  const decision = getMarketDecision(analysis);
+  const direction = decision.direction;
 
   if (!['BUY', 'SELL'].includes(direction)) {
-    console.log('🕐 HOURLY MARKET BIAS | WAIT | no trade');
+    console.log(`🕐 HOURLY MARKET BIAS | WAIT | ${decision.reasons.join(' | ')}`);
     return false;
   }
 
@@ -59,13 +115,16 @@ async function runHourlyMarketBiasTrade(bot) {
     return false;
   }
 
-  const confidence = finite(analysis?.signal?.confidence);
+  const score = direction === 'BUY' ? decision.buyScore : decision.sellScore;
   const message = [
     '🕐 صفقة ميل السوق الساعية',
     '━━━━━━━━━━━━━━━━━━',
     '',
     '🥇 الزوج: #XAUUSD',
     `📊 ميل السوق: ${direction === 'BUY' ? '📈 BUY' : '📉 SELL'}`,
+    `🧠 التأكيد الفني: ${score}/4`,
+    ...(decision.confidence == null ? [] : [`🤖 ثقة AI: ${decision.confidence.toFixed(0)}%`]),
+    ...(decision.adx == null ? [] : [`💪 ADX: ${decision.adx.toFixed(1)}`]),
     '',
     '💰 الدخول:',
     entry.toFixed(2),
@@ -78,7 +137,6 @@ async function runHourlyMarketBiasTrade(bot) {
     '',
     `📏 SL: $${DISTANCE_USD}`,
     `💵 TP: $${DISTANCE_USD}`,
-    ...(confidence == null ? [] : ['', `🤖 ثقة التحليل: ${confidence.toFixed(0)}%`]),
     '',
     '🧪 المصدر: Hourly Market Bias'
   ].join('\n');
@@ -91,7 +149,7 @@ async function runHourlyMarketBiasTrade(bot) {
 
   try {
     await bot.telegram.sendMessage(chatId, message);
-    console.log(`💎 HOURLY MARKET BIAS SENT | Trade #${tradeId} | ${direction} | entry=${entry.toFixed(2)} | SL=${sl.toFixed(2)} | TP=${tp.toFixed(2)}`);
+    console.log(`💎 HOURLY MARKET BIAS SENT | Trade #${tradeId} | ${direction} | score=${score}/4 | AI=${decision.confidence}% | entry=${entry.toFixed(2)} | SL=${sl.toFixed(2)} | TP=${tp.toFixed(2)}`);
     return true;
   } catch (error) {
     console.log(`❌ HOURLY MARKET BIAS VIP SEND FAILED | Trade #${tradeId} | ${error.message}`);
@@ -101,5 +159,6 @@ async function runHourlyMarketBiasTrade(bot) {
 
 module.exports = {
   runHourlyMarketBiasTrade,
-  getMarketDirection
+  getMarketDirection,
+  getMarketDecision
 };
