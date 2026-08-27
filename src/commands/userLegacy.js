@@ -943,7 +943,8 @@ ${near ? `\nأقرب الفرص:\n\n${near}\n` : ''}
 async function calculateSignalLab() {
   const results = [];
 
-  for (const pair of PAIRS) {
+  // Signal Lab is GOLD ONLY and uses the local historical XAUUSD dataset.
+  for (const pair of ['XAUUSD']) {
     try {
       const analysis = await analyzePair(pair);
       if (!analysis || !analysis.indicators) continue;
