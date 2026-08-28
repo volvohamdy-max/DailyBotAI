@@ -34,7 +34,16 @@ async function buildGoldCheck(ctx,type,direction){
   const en=isEnglish(ctx),timeframe=type==='scalp'?'5min':'15min';
   const [analysis,candles]=await Promise.all([analyzePair('XAUUSD'),getCandles('XAUUSD',timeframe)]);
   if(!analysis||!Array.isArray(candles)||candles.length<20)throw new Error('Insufficient market data');
-  const levels=calculateTradeLevels(candles,direction,'XAUUSD');if(!levels)throw new Error('Unable to calculate trade levels');
+  const levels=calculateTradeLevels(candles,direction,'XAUUSD');
+  if(!levels){
+    const {score,marketDirection}=directionalMarketScore(analysis,direction);
+    const confidence=Number(analysis?.signal?.confidence||0);
+    const lab=await runSignalLab('XAUUSD',analysis.indicators||{},direction,{timeframe});
+    const marketText=marketDirection==='BUY'?'📈 BUY':marketDirection==='SELL'?'📉 SELL':'⏳ WAIT';
+    const typeText=type==='scalp'?(en?'⚡ Scalping':'⚡ سكالب'):(en?'📈 Intraday':'📈 إنتراداي');
+    const unavailable=en?`🥇 VIP GOLD TRADE CHECK\n━━━━━━━━━━━━━━━━━━\n\n⚙️ Type: ${typeText}\n🎯 Your direction: ${direction}\n📊 Market direction: ${marketText}\n\n⛔ No safe trade levels are available for ${direction} right now.\n🛑 The required stop-loss distance exceeds the Gold risk limit.\n✅ No trade is recommended until a valid Entry / SL / TP structure becomes available.\n\n━━━━━━━━━━━━━━━━━━\n⭐ Market Score: ${score}/100\n🤖 AI Confidence: ${Number.isFinite(confidence)?confidence:0}%\n⏱️ Analysis timeframe: ${timeframe}`:`🥇 اختبار صفقة الذهب — VIP\n━━━━━━━━━━━━━━━━━━\n\n⚙️ نوع الصفقة: ${typeText}\n🎯 اختيارك: ${direction}\n📊 اتجاه السوق: ${marketText}\n\n⛔ لا توجد مستويات آمنة لصفقة ${direction} حاليًا.\n🛑 مسافة وقف الخسارة المطلوبة أكبر من حد المخاطرة المسموح للذهب.\n✅ لا يُنصح بالدخول حتى تتوفر مستويات دخول / وقف / أهداف صالحة.\n\n━━━━━━━━━━━━━━━━━━\n⭐ قوة الصفقة: ${score}/100\n🤖 ثقة AI: ${Number.isFinite(confidence)?confidence:0}%\n⏱️ فريم التحليل: ${timeframe}`;
+    return unavailable+historicalText(lab,en)+(en?'\n\n⚠️ Historical similarity is analytical evidence, not a guarantee of profit.':'\n\n⚠️ الحالات التاريخية أداة تحليلية وليست ضمانًا للربح.');
+  }
   const {score,marketDirection}=directionalMarketScore(analysis,direction);const confidence=Number(analysis?.signal?.confidence||0);
   const entry=Number(levels.entry),sl=Number(levels.sl??levels.stopLoss),tp1=Number(levels.tp1??levels.target1),tp2=Number(levels.tp2??levels.target2);
   const risk=Number.isFinite(entry)&&Number.isFinite(sl)?Math.abs(entry-sl):0;const rr1=risk>0&&Number.isFinite(tp1)?Math.abs(tp1-entry)/risk:null;const rr2=risk>0&&Number.isFinite(tp2)?Math.abs(tp2-entry)/risk:null;
