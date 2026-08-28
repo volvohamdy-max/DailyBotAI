@@ -3,10 +3,15 @@ const path = require('path');
 const zlib = require('zlib');
 
 const ROOT = path.join(process.cwd(), 'data', 'signal-lab-history');
+const BACKTEST_ROOT = path.join(process.cwd(), 'data', 'backtests', 'history-cache');
 const memory = new Map();
 
 function fileFor(symbol) {
   return path.join(ROOT, `${String(symbol || '').toUpperCase()}-m5.json.gz`);
+}
+
+function fallbackFileFor(symbol) {
+  return path.join(BACKTEST_ROOT, `${String(symbol || '').toUpperCase()}_5min.json`);
 }
 
 function normalize(rows) {
@@ -43,10 +48,18 @@ function aggregate(rows, minutes) {
 function loadM5(symbol) {
   const s = String(symbol || '').toUpperCase();
   if (memory.has(s)) return memory.get(s);
-  const f = fileFor(s);
-  if (!fs.existsSync(f)) return [];
-  const raw = zlib.gunzipSync(fs.readFileSync(f)).toString('utf8');
-  const rows = normalize(JSON.parse(raw));
+
+  const compressed = fileFor(s);
+  const fallback = fallbackFileFor(s);
+  let rows = [];
+
+  if (fs.existsSync(compressed)) {
+    const raw = zlib.gunzipSync(fs.readFileSync(compressed)).toString('utf8');
+    rows = normalize(JSON.parse(raw));
+  } else if (fs.existsSync(fallback)) {
+    rows = normalize(JSON.parse(fs.readFileSync(fallback, 'utf8')));
+  }
+
   memory.set(s, rows);
   return rows;
 }
@@ -67,7 +80,9 @@ function getSignalLabHistory(symbol, timeframe='5min', options={}) {
   return rows;
 }
 
-function hasSignalLabHistory(symbol) { return fs.existsSync(fileFor(symbol)); }
+function hasSignalLabHistory(symbol) {
+  return fs.existsSync(fileFor(symbol)) || fs.existsSync(fallbackFileFor(symbol));
+}
 function clearSignalLabHistoryMemory(symbol) { if (symbol) memory.delete(String(symbol).toUpperCase()); else memory.clear(); }
 
 module.exports = { getSignalLabHistory, hasSignalLabHistory, clearSignalLabHistoryMemory, fileFor, aggregate };
