@@ -1,7 +1,7 @@
 const { analyzePair } = require('./analysisGate');
 const { buildGoldScalpResult } = require('./goldScalper');
 const { allUsers } = require('../database/users');
-const { addTrade, getOpenTrades, markTradeAsFree } = require('../database/trades');
+const { addTrade, getOpenTrades, markTradeAsFree, evaluateGoldPortfolioEntry } = require('../database/trades');
 const { canSendFreeSignal, markFreeSignalSent } = require('../database/freeSignalState');
 const { getCandles, getPrice } = require('./marketService');
 const { calculateTradeLevels } = require('./tradeEngine');
@@ -14,7 +14,6 @@ const { getBoolSetting, getNumberSetting } = require('../database/adminControl')
 
 const PAIRS = ['XAUUSD'];
 let lastSignals = {};
-const pendingVipSignals = new Map();
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function sendVipSignal(bot, message, pair, strategyId) {
@@ -34,17 +33,6 @@ async function sendVipSignal(bot, message, pair, strategyId) {
     }
   }
   return false;
-}
-
-async function retryPendingVipSignals(bot) {
-  if(!pendingVipSignals.size) return;
-  const openIds=new Set(getOpenTrades().map(t=>Number(t.id)));
-  for(const [tradeId,pending] of pendingVipSignals.entries()) {
-    if(!openIds.has(Number(tradeId))) { pendingVipSignals.delete(tradeId); console.log(`🧹 PENDING VIP ENTRY REMOVED | Trade #${tradeId} is no longer open`); continue; }
-    console.log(`🔁 RETRYING PENDING VIP ENTRY | ${pending.pair} | ${pending.strategyId} | Trade #${tradeId}`);
-    const delivered=await sendVipSignal(bot,pending.message,pending.pair,pending.strategyId);
-    if(delivered) { pendingVipSignals.delete(tradeId); console.log(`✅ PENDING VIP ENTRY DELIVERED | ${pending.pair} | ${pending.strategyId} | Trade #${tradeId}`); }
-  }
 }
 
 function rebaseLevelsToLivePrice(levels, livePrice) {
@@ -123,12 +111,22 @@ async function processSignalResult(bot,pair,result) {
   const riskBlock=isProStrategy?`📏 مسافة وقف الخسارة\n${Number(levels.riskDistance).toFixed(2)} دولار`:`⚖️ العائد للمخاطرة\nTP1 → 1:${Number(levels.rrTp1).toFixed(2)}\nTP2 → 1:${Number(levels.rrTp2).toFixed(2)}\n\n📏 مسافة وقف الخسارة\n${Number(levels.riskDistance).toFixed(2)}`;
   const message=`\n⚡ إشارة سكالب — ${result.scalpMeta?.strategyLabel||'Gold Scalp'}\n\n🥇 الزوج: ${pair}\n\n📈 الاتجاه: ${result.signal.action}\n\n💰 سعر التنفيذ الحي\n${livePrice.toFixed(2)}\n\n📍 منطقة الدخول\n${entryFrom.toFixed(2)} ➜ ${entryTo.toFixed(2)}\n\n🛑 وقف الخسارة\n${Number(levels.sl).toFixed(2)}\n\n${targetBlock}\n\n⚡ قرار الدخول: شروط الاستراتيجية مكتملة\n⏱️ الفريم التنفيذي: 5M\n\n📊 ATR\n${atr.toFixed(2)}\n\n${riskBlock}\n`;
 
-  const tradeInsert=addTrade({telegram_id:`VIP_SCALP_${scalpStrategyId}`,pair,action:result.signal.action,entry:levels.entry,stop_loss:levels.sl,target1:levels.tp1,target2:levels.tp2});
-  const tradeId=Number(tradeInsert?.lastInsertRowid||0);
-  if(tradeId<=0) { console.log(`🛡️ LIVE SIGNAL NOT PUBLISHED | ${pair} | ${scalpStrategyId} | portfolio reservation rejected`); return false; }
+  const tradeData={telegram_id:`VIP_SCALP_${scalpStrategyId}`,pair,action:result.signal.action,entry:levels.entry,stop_loss:levels.sl,target1:levels.tp1,target2:levels.tp2};
+  const portfolio=evaluateGoldPortfolioEntry(tradeData);
+  if(!portfolio.allowed) { console.log(`🛡️ LIVE SIGNAL NOT PUBLISHED | ${pair} | ${scalpStrategyId} | portfolio rejected before VIP delivery | reason=${portfolio.reason}`); return false; }
 
   const vipDelivered=await sendVipSignal(bot,message,pair,scalpStrategyId);
-  if(!vipDelivered) { pendingVipSignals.set(tradeId,{message,pair,strategyId:scalpStrategyId,createdAt:now}); console.log(`⏳ VIP ENTRY PENDING | ${pair} | ${scalpStrategyId} | Trade #${tradeId} stays OPEN and will be retried on following scans`); }
+  if(!vipDelivered) {
+    console.log(`🛑 VIP SIGNAL ABORTED | ${pair} | ${scalpStrategyId} | entry was NOT registered, so no TP/SL result can be emitted`);
+    return false;
+  }
+
+  const tradeInsert=addTrade(tradeData);
+  const tradeId=Number(tradeInsert?.lastInsertRowid||0);
+  if(tradeId<=0) {
+    console.log(`❌ VIP SIGNAL DELIVERED BUT TRADE REGISTRATION FAILED | ${pair} | ${scalpStrategyId} | manual investigation required`);
+    return false;
+  }
 
   lastSignals[signalKey]={direction:currentDirection,mode:currentMode,entry:currentEntry,atr:currentAtr,time:now};
   try { const power=evaluatePowerTrade({tradeId,pair,action:result.signal.action,result}); if(power.qualified) console.log(`⚡ POWER TRADE ${power.grade} | ${pair} | Score ${power.powerScore}/100 | Trade #${tradeId}`); } catch(e) {}
@@ -139,13 +137,12 @@ async function processSignalResult(bot,pair,result) {
   if(!freePublicSent&&!isProStrategy){try{await publishHiddenSignal(bot,{tradeId,pair,action:result.signal.action,entry:levels.entry,stopLoss:levels.sl,target1:levels.tp1,target2:levels.tp2,aiScore:Number(result.scalpMeta?.score??result.signal?.confidence??0)});}catch(e){}}
   for(const adminId of config.adminIds){if(!users.find(u=>String(u.telegram_id)===String(adminId))){try{await bot.telegram.sendMessage(adminId,message);}catch(e){}}}
   if(pair==='XAUUSD'&&result.scalpMeta?.ready&&typeof result.scalpMeta.markSent==='function') result.scalpMeta.markSent();
-  console.log(`✅ LIVE SIGNAL COMMITTED | ${pair} | ${scalpStrategyId} | Trade #${tradeId} | entry=${Number(levels.entry).toFixed(2)} | vipDelivered=${vipDelivered}`);
+  console.log(`✅ LIVE SIGNAL COMMITTED | ${pair} | ${scalpStrategyId} | Trade #${tradeId} | entry=${Number(levels.entry).toFixed(2)} | vipDelivered=true`);
   return true;
 }
 
 async function scanMarket(bot) {
   if(!getBoolSetting('auto_signals_enabled',true)) { console.log('⏸️ Auto Signals disabled from Admin Control Center'); return; }
-  await retryPendingVipSignals(bot);
   const scanStart=Date.now(); console.log('🚀 SCAN START:',new Date(scanStart).toLocaleTimeString()); console.log('🚨 AUTO SIGNALS FILE IS RUNNING'); console.log('🔍 Scanning Market...');
   for(const pair of PAIRS){try{
     let result;
