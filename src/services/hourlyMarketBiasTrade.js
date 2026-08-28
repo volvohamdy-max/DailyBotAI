@@ -1,28 +1,59 @@
 const { analyzePair } = require('./analysisService');
-const { getPrice } = require('./marketService');
+const { getCandles } = require('./marketService');
+const { calculateTradeLevels } = require('./tradeEngine');
 const { runSignalLab } = require('./signalLab');
 const { addTrade, getOpenTrades } = require('../database/trades');
 const config = require('../config');
 
 const SOURCE_PREFIX = 'VIP_HOURLY_MARKET_BIAS';
-const DISTANCE_USD = 5;
-const MIN_SIMILAR_CASES = 10;
+const MIN_SCORE = 70;
 
 function finite(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
 
-// Same market-direction idea used by "Check Your Trade": prefer the live
-// analysis direction, then use EMA20/EMA50 only when the analysis has no side.
-function currentMarketDirection(analysis) {
-  const action = String(analysis?.signal?.action || '').toUpperCase();
-  if (action === 'BUY' || action === 'SELL') return action;
+// Same scoring engine used by "Check Your Trade".
+function directionalMarketScore(analysis, selectedDirection) {
+  const indicators = analysis?.indicators || {};
+  const ema20 = Number(indicators.ema20);
+  const ema50 = Number(indicators.ema50);
+  const rsi = Number(indicators.rsi);
+  const adx = Number(indicators.adx);
+  const macd = Number(indicators.macd?.macd);
+  const macdSignal = Number(indicators.macd?.signal);
 
-  const ema20 = finite(analysis?.indicators?.ema20);
-  const ema50 = finite(analysis?.indicators?.ema50);
-  if (ema20 == null || ema50 == null || ema20 === ema50) return 'WAIT';
-  return ema20 > ema50 ? 'BUY' : 'SELL';
+  const marketDirection =
+    analysis?.signal?.action === 'BUY' || analysis?.signal?.action === 'SELL'
+      ? analysis.signal.action
+      : Number.isFinite(ema20) && Number.isFinite(ema50)
+        ? (ema20 >= ema50 ? 'BUY' : 'SELL')
+        : 'WAIT';
+
+  let score = 0;
+  if (selectedDirection === marketDirection) score += 35;
+
+  if (Number.isFinite(ema20) && Number.isFinite(ema50)) {
+    if (selectedDirection === 'BUY' && ema20 > ema50) score += 20;
+    if (selectedDirection === 'SELL' && ema20 < ema50) score += 20;
+  }
+
+  if (Number.isFinite(rsi)) {
+    if (selectedDirection === 'BUY' && rsi >= 50 && rsi <= 70) score += 15;
+    if (selectedDirection === 'SELL' && rsi <= 50 && rsi >= 30) score += 15;
+  }
+
+  if (Number.isFinite(macd) && Number.isFinite(macdSignal)) {
+    if (selectedDirection === 'BUY' && macd > macdSignal) score += 15;
+    if (selectedDirection === 'SELL' && macd < macdSignal) score += 15;
+  }
+
+  if (Number.isFinite(adx) && adx >= 25) score += 15;
+
+  return {
+    score: Math.max(0, Math.min(100, score)),
+    marketDirection
+  };
 }
 
 function hasOpenBiasTrade() {
@@ -36,112 +67,136 @@ function opportunityKey(date = new Date()) {
 }
 
 async function runHourlyMarketBiasTrade(bot) {
-  // One automatic Signal Lab trade at a time. Other bot strategies are untouched.
+  // Do not stack automatic Check Your Trade positions.
   if (hasOpenBiasTrade()) {
-    console.log('🧪 AUTO SIGNAL LAB | existing trade still open | scan skipped');
+    console.log('🥇 AUTO TRADE CHECK | existing trade still open | scan skipped');
     return false;
   }
 
-  const analysis = await analyzePair('XAUUSD');
-  if (!analysis?.indicators) {
-    console.log('🧪 AUTO SIGNAL LAB | WAIT | no live indicators');
+  const timeframe = '5min';
+  const [analysis, candles] = await Promise.all([
+    analyzePair('XAUUSD'),
+    getCandles('XAUUSD', timeframe)
+  ]);
+
+  if (!analysis?.indicators || !Array.isArray(candles) || candles.length < 20) {
+    console.log('🥇 AUTO TRADE CHECK | WAIT | insufficient market data');
     return false;
   }
 
-  const direction = currentMarketDirection(analysis);
-  if (!['BUY', 'SELL'].includes(direction)) {
-    console.log('🧪 AUTO SIGNAL LAB | WAIT | neutral market');
-    return false;
-  }
+  const liveAction = String(analysis?.signal?.action || '').toUpperCase();
+  const fallbackDirection =
+    Number(analysis.indicators.ema20) >= Number(analysis.indicators.ema50)
+      ? 'BUY'
+      : 'SELL';
+  const direction = ['BUY', 'SELL'].includes(liveAction) ? liveAction : fallbackDirection;
 
-  // This is the same historical Signal Lab engine already used by the bot.
-  // It reads the local XAUUSD history store and compares the current indicator
-  // state with historical setups. No London/ADX35/RSI58 research filter here.
-  const lab = await runSignalLab('XAUUSD', analysis.indicators, direction, {
-    timeframe: '5min'
-  });
+  const { score, marketDirection } = directionalMarketScore(analysis, direction);
+  const confidence = Number(analysis?.signal?.confidence || 0);
 
-  if (!lab?.approved || Number(lab.similarSetups || 0) < MIN_SIMILAR_CASES) {
+  // Automatic VIP opportunity must be a good setup from the same checker score.
+  if (marketDirection !== direction || score < MIN_SCORE) {
     console.log(
-      `🧪 AUTO SIGNAL LAB | WAIT | ${direction} | similar=${lab?.similarSetups || 0} | ` +
-      `score=${lab?.historicalScore || 0} | TP1=${lab?.tp1Rate || 0}% | SL=${lab?.slRate || 0}% | ` +
-      `${lab?.reason || 'historical validation failed'}`
+      `🥇 AUTO TRADE CHECK | WAIT | ${direction} | score=${score}/100 | AI=${Number.isFinite(confidence) ? confidence : 0}%`
     );
     return false;
   }
 
-  const entry = finite(await getPrice('XAUUSD'));
-  if (entry == null || entry <= 0) {
-    throw new Error('Auto Signal Lab cannot determine XAUUSD live price');
+  const levels = calculateTradeLevels(candles, direction, 'XAUUSD');
+  if (!levels) {
+    console.log('🥇 AUTO TRADE CHECK | WAIT | unable to calculate trade levels');
+    return false;
   }
 
-  const sl = direction === 'BUY' ? entry - DISTANCE_USD : entry + DISTANCE_USD;
-  const tp = direction === 'BUY' ? entry + DISTANCE_USD : entry - DISTANCE_USD;
-  const source = `${SOURCE_PREFIX}_SIGNALLAB_${opportunityKey()}`;
+  const lab = await runSignalLab('XAUUSD', analysis.indicators, direction, { timeframe });
+  if (!lab?.approved) {
+    console.log(
+      `🧪 AUTO TRADE CHECK | BLOCKED BY SIGNAL LAB | ${direction} | score=${score}/100 | ` +
+      `historical=${lab?.historicalScore || 0}/100 | ${lab?.reason || 'historical validation failed'}`
+    );
+    return false;
+  }
 
+  const entry = finite(levels.entry);
+  const sl = finite(levels.sl ?? levels.stopLoss);
+  const tp1 = finite(levels.tp1 ?? levels.target1);
+  const tp2 = finite(levels.tp2 ?? levels.target2);
+
+  if (entry == null || sl == null || tp1 == null || tp2 == null) {
+    console.log('🥇 AUTO TRADE CHECK | WAIT | invalid trade levels');
+    return false;
+  }
+
+  const source = `${SOURCE_PREFIX}_CHECKTRADE_${opportunityKey()}`;
   const inserted = addTrade({
     telegram_id: source,
     pair: 'XAUUSD',
     action: direction,
     entry,
     stop_loss: sl,
-    target1: tp,
-    target2: tp
+    target1: tp1,
+    target2: tp2
   });
 
   const tradeId = Number(inserted?.lastInsertRowid || 0);
   if (tradeId <= 0) {
-    console.log(`❌ AUTO SIGNAL LAB | trade insert rejected | ${direction}`);
+    console.log(`❌ AUTO TRADE CHECK | trade insert rejected | ${direction}`);
     return false;
   }
 
   const message = [
-    '🧪 صفقة Signal Lab تلقائية',
+    '🥇 صفقة الذهب — اختبر صفقتك',
     '━━━━━━━━━━━━━━━━━━',
     '',
-    '🥇 الزوج: #XAUUSD',
+    '⚙️ نوع الصفقة: ⚡ سكالب',
     `📊 الاتجاه: ${direction === 'BUY' ? '📈 BUY' : '📉 SELL'}`,
-    '',
-    `📚 حالات تاريخية مشابهة: ${lab.similarSetups}`,
-    `⭐ Historical Score: ${lab.historicalScore}/100`,
-    `🎯 TP1 تاريخيًا: ${lab.tp1Rate}%`,
-    `🏆 TP2 تاريخيًا: ${lab.tp2Rate}%`,
-    `🛑 SL تاريخيًا: ${lab.slRate}%`,
-    `🧭 توافق الاتجاه تاريخيًا: ${lab.directionMatchRate}%`,
     '',
     `💰 الدخول: ${entry.toFixed(2)}`,
     `🛑 وقف الخسارة: ${sl.toFixed(2)}`,
-    `🎯 الهدف: ${tp.toFixed(2)}`,
+    `🎯 الهدف الأول TP1: ${tp1.toFixed(2)}`,
+    `🏆 الهدف الثاني TP2: ${tp2.toFixed(2)}`,
     '',
-    `📏 SL: $${DISTANCE_USD}`,
-    `💵 TP: $${DISTANCE_USD}`,
+    `⭐ قوة الصفقة: ${score}/100`,
+    `🤖 ثقة AI: ${Number.isFinite(confidence) ? confidence : 0}%`,
     '',
-    '🧪 المصدر: Auto Signal Lab — Gold History'
+    '🧪 SIGNAL LAB — تاريخ الذهب',
+    `📚 الحالات التاريخية المشابهة: ${lab.similarSetups}`,
+    `⭐ التقييم التاريخي: ${lab.historicalScore}/100`,
+    `🎯 وصول TP1 تاريخيًا: ${lab.tp1Rate}%`,
+    `🏆 وصول TP2 تاريخيًا: ${lab.tp2Rate}%`,
+    `🛑 وصول SL تاريخيًا: ${lab.slRate}%`,
+    '✅ معتمد من Signal Lab',
+    '',
+    `⏱️ فريم التحليل: ${timeframe}`
   ].join('\n');
 
   const chatId = String(config.vipChannelId || '').trim();
   if (!chatId) {
-    console.log(`❌ AUTO SIGNAL LAB | VIP_CHANNEL_ID missing | Trade #${tradeId} remains open`);
+    console.log(`❌ AUTO TRADE CHECK | VIP_CHANNEL_ID missing | Trade #${tradeId} remains open`);
     return false;
   }
 
   try {
     await bot.telegram.sendMessage(chatId, message);
     console.log(
-      `💎 AUTO SIGNAL LAB SENT | Trade #${tradeId} | ${direction} | ` +
-      `similar=${lab.similarSetups} | score=${lab.historicalScore} | TP1=${lab.tp1Rate}% | SL=${lab.slRate}% | ` +
-      `entry=${entry.toFixed(2)} | SL=${sl.toFixed(2)} | TP=${tp.toFixed(2)}`
+      `💎 AUTO TRADE CHECK SENT | Trade #${tradeId} | XAUUSD ${direction} | ` +
+      `score=${score}/100 | AI=${Number.isFinite(confidence) ? confidence : 0}% | ` +
+      `SignalLab=${lab.historicalScore}/100`
     );
     return true;
   } catch (error) {
-    console.log(`❌ AUTO SIGNAL LAB VIP SEND FAILED | Trade #${tradeId} | ${error.message}`);
+    console.log(`❌ AUTO TRADE CHECK VIP SEND FAILED | Trade #${tradeId} | ${error.message}`);
     return false;
   }
 }
 
-// Kept for compatibility with any existing imports/tests.
+// Kept for compatibility with existing imports/tests.
 function getMarketDirection(analysis) {
-  return currentMarketDirection(analysis);
+  return directionalMarketScore(analysis, 'BUY').marketDirection;
+}
+
+function currentMarketDirection(analysis) {
+  return getMarketDirection(analysis);
 }
 
 module.exports = {
