@@ -15,6 +15,7 @@ async function sendWelcome(ctx, user) {
   const language = user.language === 'en' ? 'en' : 'ar';
   const text = tByLang(language);
   const refLink = `https://t.me/${config.botUsername}?start=${user.referral_code}`;
+  const isVip = Boolean(user.is_vip) && (!user.vip_expires_at || new Date(user.vip_expires_at).getTime() > Date.now());
 
   return ctx.reply(
 `${text.welcomeTitle(user.first_name)}
@@ -27,13 +28,13 @@ ${refLink}
 ━━━━━━━━━━━━━━
 
 ${text.chooseService}`,
-    mainKeyboard(language)
+    mainKeyboard(language, false, isVip)
   );
 }
 
 function registerStart(bot) {
   bot.command('start', async (ctx) => {
-    const user = createOrUpdateUser(ctx.from, ctx.startPayload);
+    let user = createOrUpdateUser(ctx.from, ctx.startPayload);
 
     if (requireAdmin(ctx, true)) {
       return ctx.reply('👑 لوحة تحكم الأدمن', adminKeyboard());
@@ -49,9 +50,9 @@ function registerStart(bot) {
 
 💎 تم تفعيل اشتراك VIP لمدة 14 يومًا مجانًا.
 `);
+      user = findUser(ctx.from.id) || user;
     }
 
-    // New or not-yet-configured user: choose language first.
     if (!user.language) {
       return ctx.reply(
         '🌐 اختر لغتك\nChoose your language',
