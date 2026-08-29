@@ -1,0 +1,7 @@
+LIVE WINNER: E2 + R3 + G1 + P1 + N4 + S0
+ACTIVE PRO: scalpStrategies/proStrategyMegaP1
+ACTIVE RANGE: scalpStrategies/goldRangeMrMegaN4
+G1 OVERRIDE: RSI 50/50 | volume 1.10 | reward 0.60R
+P1: RSI entry 37/63 | exit 55/45 | ADX 18 | SL $12
+FLOW: six scanners -> evaluateGoldPortfolioEntry -> VIP delivery -> addTrade -> tradeMonitor -> VIP result
+PREMERGE: node scripts/premerge-no-deps.js
