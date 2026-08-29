@@ -1,0 +1,12 @@
+const assert=require('assert');
+const scalperText=require('fs').readFileSync(require('path').join(__dirname,'../src/services/goldScalper.js'),'utf8');
+assert(scalperText.includes("require('./scalpStrategies/proStrategyMegaP1')"),'runtime must use P1');
+assert(scalperText.includes("require('./scalpStrategies/goldRangeMrMegaN4')"),'runtime must use N4');
+const p1=require('../src/services/scalpStrategies/proStrategyMegaP1');
+assert.equal(p1.CONFIG.stopDistance,12); assert.equal(p1.CONFIG.entry,37); assert.equal(p1.CONFIG.exit,55); assert.equal(p1.CONFIG.adxMin,18);
+const n4=require('../src/services/scalpStrategies/goldRangeMrMegaN4'); assert.equal(n4.CONFIG.adxMax,18); assert.equal(n4.CONFIG.rsiEdge,44); assert.equal(n4.CONFIG.minRR,.55);
+const exhaust=require('../src/services/scalpStrategies/goldExhaustionV3Strategy'); assert(exhaust.scan&&exhaust.CONFIG);
+const rapid=require('../src/services/scalpStrategies/goldRapidScalpStrategy'); assert(rapid.scan&&rapid.CONFIG); assert(String(rapid.CONFIG.hoursUTC).includes('17'));
+const grok=require('../src/services/scalpStrategies/grokGold92Strategy'); assert(grok.scan&&grok.CONFIG);
+const sweep=require('../src/services/scalpStrategies/goldSweep5Strategy'); assert(sweep.scan&&sweep.CONFIG);
+console.log('✅ RUNTIME EXACT WINNER: E2 + R3 + G1 + P1 + N4 + S0');

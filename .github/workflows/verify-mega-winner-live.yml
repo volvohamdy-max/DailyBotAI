@@ -1,0 +1,15 @@
+name: Verify Mega Winner Live
+on:
+  push:
+    branches: [live/mega-winner-e2-r3-g1-p1-n4-s0]
+  pull_request:
+    branches: [main]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/verify-all-premerge.js
