@@ -1,0 +1,26 @@
+const assert=require('assert');
+const fs=require('fs');
+const path=require('path');
+const root=path.resolve(__dirname,'..');
+function read(p){return fs.readFileSync(path.join(root,p),'utf8')}
+const pro=require('../src/services/scalpStrategies/proStrategy');
+assert.equal(pro.CONFIG.stopDistance,12,'P1 stopDistance');
+assert.equal(pro.CONFIG.buyAdxMin,18,'P1 BUY ADX');
+assert.equal(pro.CONFIG.sellAdxMin,18,'P1 SELL ADX');
+assert.equal(pro.CONFIG.buyExitLevel,55,'P1 BUY exit');
+assert.equal(pro.CONFIG.sellExitLevel,45,'P1 SELL exit');
+const scalper=read('src/services/goldScalper.js');
+for(const name of ['goldExhaustionV3Strategy','goldRapidScalpStrategy','grokGold92Strategy','proStrategy','goldRangeMrStrategy','goldSweep5Strategy'])assert(scalper.includes(name),`missing ${name}`);
+const auto=read('src/services/autoSignals.js');
+assert(auto.includes('evaluateGoldPortfolioEntry'),'MAX OPEN portfolio guard missing');
+assert(auto.includes('sendVipSignal(bot,message,pair,scalpStrategyId)'),'VIP-first delivery missing');
+assert(auto.indexOf('sendVipSignal(bot,message,pair,scalpStrategyId)')<auto.indexOf('addTrade(tradeData)'),'trade must be registered after VIP delivery');
+assert(auto.includes("RSI(14) ≥ 55")&&auto.includes("RSI(14) ≤ 45"),'VIP P1 exits mismatch');
+const monitor=read('src/services/tradeMonitor.js');
+assert(monitor.includes('proStrategy.CONFIG.buyExitLevel||55'),'monitor BUY P1 mismatch');
+assert(monitor.includes('proStrategy.CONFIG.sellExitLevel||45'),'monitor SELL P1 mismatch');
+assert(monitor.includes('bot.telegram.sendMessage(config.vipChannelId,message)'),'VIP result route missing');
+assert(monitor.includes('updateTradeStatus(trade.id,newStatus)'),'trade status update missing');
+console.log('✅ MEGA WINNER LIVE WIRING VERIFIED');
+console.log('E2 + R3 + G1 + P1 + N4 + S0');
+console.log('VIP signal → DB trade → monitor → VIP result');
