@@ -1,0 +1,1 @@
+require('./verify-live-static');
