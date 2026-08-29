@@ -1,0 +1,1 @@
+require('./verify-live-static');require('./verify-no-legacy-pro');require('./verify-winner-source-tokens');require('./verify-portfolio-max-open');console.log('🏁 ALL DEPENDENCY-FREE PREMERGE CHECKS PASSED');
