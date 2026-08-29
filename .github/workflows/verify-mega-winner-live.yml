@@ -12,10 +12,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: node scripts/verify-live-static.js
-      - run: node --check src/services/scalpStrategies/proStrategyMegaP1.js
-      - run: node --check src/services/scalpStrategies/goldRangeMrMegaN4.js
-      - run: node scripts/verify-mega-winner-runtime.js
-      - run: node scripts/smoke-mega-winner-modules.js
+      - run: node scripts/verify-all-premerge.js
