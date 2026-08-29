@@ -1,76 +1,20 @@
 #!/usr/bin/env node
 'use strict';
-/**
- * SIX STRATEGY 70WR MEGA OPTIMIZER — research only.
- *
- * Purpose:
- * - Keep ALL six live strategy families represented.
- * - Expand the search beyond the old 1296 portfolio combinations.
- * - Run several discovery windows, collect the best all-six portfolios,
- *   then validate the recurring candidates on 6M and 1Y robustness runs.
- * - Target 70% WR while preferring roughly 4.5–5+ signals/active day.
- *
- * IMPORTANT: this launcher never edits live strategy files.
- */
-const {spawnSync}=require('child_process');
-
-const windows=[
- ['2026-07-29','2026-08-29','AUG'],
- ['2026-06-01','2026-06-30','JUN'],
- ['2026-05-01','2026-05-31','MAY'],
- ['2026-04-01','2026-04-30','APR'],
- ['2026-03-01','2026-03-31','MAR'],
- ['2026-02-01','2026-02-28','FEB'],
- ['2026-01-01','2026-01-31','JAN'],
- ['2026-03-01','2026-08-29','6M'],
- ['2025-08-29','2026-08-29','1Y'],
-];
-const engine='scripts/backtest-six-final-month-combo.js';
-const rows=[];
-function parse(text,label){
- const re=/\|\s+(E-[^+\n]+\+\s+R-[^+\n]+\+\s+G-[^+\n]+\+\s+P-[^+\n]+\+\s+N-[^+\n]+\+\s+S-[^|\n]+)\|\s+Trades\s+(\d+)\s+W(\d+)\/L(\d+)\s+WR([\d.]+)%\s+\|\s+WinDays\s+(\d+)\/(\d+)=([\d.]+)%[^|]*\|\s+Avg\s+([\d.]+)\s+D5\+\s+(\d+)\s+\|\s+LS(\d+)\s+DD([\d.]+)\s+PF([\d.]+)\s+Net\s+([\-\d.]+)R/g;
- let m; while((m=re.exec(text))){rows.push({label,combo:m[1].trim().replace(/\s+/g,' '),n:+m[2],w:+m[3],l:+m[4],wr:+m[5],wd:+m[8],avg:+m[9],d5:+m[10],ls:+m[11],dd:+m[12],pf:+m[13],net:+m[14]});}
-}
-console.log('🧠 SIX STRATEGY 70WR MEGA OPTIMIZER');
-console.log('🎯 Goal: push WR toward 70% without killing activity');
-console.log('🔒 ALL SIX remain included | MAX OPEN 2 inside engine | LIVE untouched');
-for(const [from,to,label] of windows){
- console.log(`\n━━━━━━━━ ${label} ${from} → ${to} ━━━━━━━━`);
- const p=spawnSync(process.execPath,[engine,from,to],{encoding:'utf8',maxBuffer:1024*1024*40});
- if(p.error){console.error(p.error);process.exit(1)}
- if(p.status!==0){console.error(p.stderr||p.stdout);process.exit(p.status||1)}
- parse(p.stdout,label);
- const lines=p.stdout.split('\n');
- const ix=lines.findIndex(x=>x.includes('🏆 TOP 20'));
- console.log((ix>=0?lines.slice(ix,Math.min(lines.length,ix+22)):lines.slice(-25)).join('\n'));
-}
-const by=new Map();
-for(const x of rows){const a=by.get(x.combo)||[];a.push(x);by.set(x.combo,a)}
-const ranked=[];
-for(const [combo,a] of by){
- const months=a.filter(x=>!['6M','1Y'].includes(x.label));
- const long=a.filter(x=>['6M','1Y'].includes(x.label));
- const n=a.reduce((s,x)=>s+x.n,0),w=a.reduce((s,x)=>s+x.w,0);
- const wr=n?100*w/n:0, avg=a.reduce((s,x)=>s+x.avg,0)/a.length;
- const worstWR=Math.min(...a.map(x=>x.wr)), worstWD=Math.min(...a.map(x=>x.wd));
- const maxLS=Math.max(...a.map(x=>x.ls)),maxDD=Math.max(...a.map(x=>x.dd));
- const net=a.reduce((s,x)=>s+x.net,0);
- const robust=months.length>=2&&avg>=4.5&&wr>=60&&worstWR>=55&&maxLS<=8&&net>0;
- // WR first, but reward recurrence and activity so a tiny lucky sample cannot win.
- const score=(wr*4)+(Math.min(avg,5.5)*8)+(months.length*12)+(long.length*18)+(worstWR*1.5)+(worstWD*.6)-maxLS*2-maxDD*.4;
- ranked.push({combo,a,months:months.length,long:long.length,n,w,wr,avg,worstWR,worstWD,maxLS,maxDD,net,robust,score});
-}
-ranked.sort((a,b)=>(b.robust-a.robust)||b.score-a.score||b.wr-a.wr||b.n-a.n);
-console.log('\n🏆 MEGA CONSENSUS TOP 25');
-for(let i=0;i<Math.min(25,ranked.length);i++){
- const x=ranked[i]; console.log(`${String(i+1).padStart(2)} | ${x.combo}\n   Seen ${x.months} monthly + ${x.long} long | Trades ${x.n} W${x.w} WR ${x.wr.toFixed(1)}% | Avg ${x.avg.toFixed(2)}/day | WorstWR ${x.worstWR.toFixed(1)}% | WorstWD ${x.worstWD.toFixed(1)}% | LS≤${x.maxLS} DD≤${x.maxDD.toFixed(2)}R | ΣNet ${x.net.toFixed(2)}R ${x.robust?'✅':''}`);
-}
-const good=ranked.filter(x=>x.robust&&x.avg>=4.5);
-const best=good.sort((a,b)=>Math.abs(70-a.wr)-Math.abs(70-b.wr)||b.wr-a.wr||b.n-a.n)[0];
-console.log('\n🎯 CLOSEST ROBUST ALL-SIX CANDIDATE TO 70%');
-if(best){
- console.log(best.combo);
- console.log(`Combined observed: Trades ${best.n} | Wins ${best.w} | WR ${best.wr.toFixed(1)}% | Avg ${best.avg.toFixed(2)}/day | WorstWR ${best.worstWR.toFixed(1)}% | WorstWD ${best.worstWD.toFixed(1)}% | LS≤${best.maxLS} | DD≤${best.maxDD.toFixed(2)}R | ΣNet ${best.net.toFixed(2)}R`);
- console.log(best.wr>=68?'🔥 We are in the 68–70 zone. Freeze it and run strict fixed OOS next.':'➡️ Current expanded portfolio pool still needs deeper per-strategy parameter expansion to reach 68–70 robustly.');
-}else console.log('No robust 4.5+/day candidate survived. Do not fake 70%; expand per-strategy parameters next.');
-console.log('\n⚠️ Research only. No live strategy was modified.');
+/** SIX STRATEGY 70WR MEGA OPTIMIZER — RESEARCH ONLY. Live untouched. */
+const {spawnSync}=require('child_process'),path=require('path'),fs=require('fs');
+const base=path.join(__dirname,'backtest-six-final-month-combo.js'),FROM=process.argv[2]||'2026-03-01',TO=process.argv[3]||'2026-08-29',tmp=path.join(__dirname,'.tmp-six-70wr-expanded.js');
+let s=fs.readFileSync(base,'utf8'),start=s.indexOf('const cfg={'),end=s.indexOf('\nconst led=',start);if(start<0||end<0)throw Error('cfg block not found');
+const cfg=`const cfg={
+EXHAUST:[{id:'E0',buyBurst:2.2,sellBurst:2.6,buyWick:.30,sellWick:.40,tp:1},{id:'E1',buyBurst:2.2,sellBurst:2.5,buyWick:.25,sellWick:.35,tp:.7},{id:'E2',buyBurst:2.3,sellBurst:2.6,buyWick:.25,sellWick:.35,tp:.7},{id:'E3',buyBurst:2.4,sellBurst:2.7,buyWick:.25,sellWick:.35,tp:.8},{id:'E4',buyBurst:2.3,sellBurst:2.6,buyWick:.30,sellWick:.40,tp:.8},{id:'E5',buyBurst:2.5,sellBurst:2.8,buyWick:.30,sellWick:.40,tp:.8}],
+RAPID:[{id:'R0',rr:2,sep:.08},{id:'R1',rr:1.75,sep:.06},{id:'R2',rr:1.5,sep:.06},{id:'R3',rr:1.5,sep:.08},{id:'R4',rr:1.25,sep:.06},{id:'R5',rr:1.75,sep:.08}],
+GROK92:[{id:'G0',rb:52,vol:1.25,rr:.8},{id:'G1',rb:50,vol:1.1,rr:.6},{id:'G2',rb:51,vol:1.1,rr:.6},{id:'G3',rb:52,vol:1.15,rr:.6},{id:'G4',rb:51,vol:1.2,rr:.7},{id:'G5',rb:53,vol:1.15,rr:.7}],
+PRO:[{id:'P0',sl:10,entry:37,exit:63,adx:15},{id:'P1',sl:12,entry:37,exit:55,adx:18},{id:'P2',sl:12,entry:37,exit:55,adx:16},{id:'P3',sl:12,entry:37,exit:55,adx:15},{id:'P4',sl:12,entry:36,exit:55,adx:18},{id:'P5',sl:12,entry:37,exit:56,adx:18},{id:'P6',sl:11,entry:37,exit:55,adx:18},{id:'P7',sl:12,entry:37,exit:55,adx:19}],
+RANGE:[{id:'N0',adx:18,rsi:46,minRR:.65},{id:'N1',adx:18,rsi:46,minRR:.45},{id:'N2',adx:18,rsi:46,minRR:.55},{id:'N3',adx:20,rsi:46,minRR:.55},{id:'N4',adx:18,rsi:44,minRR:.55},{id:'N5',adx:20,rsi:44,minRR:.45}],
+SWEEP5:[{id:'S0',hs:9,he:13,wick:.60,mom:.5,tp:5},{id:'S1',hs:9,he:12,wick:.45,mom:.4,tp:3.5},{id:'S2',hs:9,he:15,wick:.45,mom:.4,tp:3.5},{id:'S3',hs:8,he:15,wick:.45,mom:.4,tp:3.5},{id:'S4',hs:9,he:14,wick:.50,mom:.4,tp:3.5},{id:'S5',hs:9,he:15,wick:.50,mom:.5,tp:4},{id:'S6',hs:8,he:14,wick:.50,mom:.4,tp:4}]};`;
+s=s.slice(0,start)+cfg+s.slice(end);const mi=s.indexOf('const rows=[];let tested=0;'),close=s.lastIndexOf("})().catch(e=>{console.error(e);process.exit(1)});");if(mi<0||close<0)throw Error('combo loop not found');
+const tail=`const rows=[];let tested=0;for(const e of cfg.EXHAUST)for(const r of cfg.RAPID)for(const g of cfg.GROK92)for(const p of cfg.PRO)for(const n of cfg.RANGE)for(const sw of cfg.SWEEP5){const ids=[e.id,r.id,g.id,p.id,n.id,sw.id],z=portfolio([led.EXHAUST[e.id],led.RAPID[r.id],led.GROK92[g.id],led.PRO[p.id],led.RANGE[n.id],led.SWEEP5[sw.id]]),st=stats(z.ok),d=daily(z.ok);tested++;if(st.n>=100&&st.net>0&&st.pf>1&&d.avg>=4)rows.push({ids,s:st,d,b:z.blocked.length})}
+function score(x){const activity=x.d.avg>=4.5?Math.min(x.d.avg,5.25):x.d.avg-2,sample=Math.min(3,x.s.n/250);return x.s.wr*5+x.d.winPct*1.5+activity*7+sample*3-x.s.ls*2-x.s.dd*.35}rows.sort((a,b)=>score(b)-score(a)||b.s.wr-a.s.wr||b.d.winPct-a.d.winPct||b.s.w-a.s.w||a.s.ls-b.s.ls);
+console.log('\\n🧠 MEGA SEARCH COMPLETE');console.log('Tested '+tested+' ALL-SIX combinations | qualified '+rows.length);console.log('🎯 WR FIRST + activity protection + Winning Days + sample + LS/DD');console.log('\\n🏆 TOP 30 — 70WR HUNT');for(let i=0;i<Math.min(30,rows.length);i++){const x=rows[i];console.log(String(i+1).padStart(2)+' | '+x.ids.join(' + ')+' | Trades '+x.s.n+' W'+x.s.w+'/L'+x.s.l+' WR '+x.s.wr.toFixed(1)+'% | WD '+x.d.winPct.toFixed(1)+'% | Avg '+x.d.avg.toFixed(2)+'/day D5+ '+x.d.d5+' | LS'+x.s.ls+' DD'+x.s.dd.toFixed(2)+' PF'+x.s.pf.toFixed(2)+' Net '+x.s.net.toFixed(2)+'R | blocked '+x.b)}
+const viable=rows.filter(x=>x.d.avg>=4.5&&x.s.n>=300&&x.s.net>0&&x.s.pf>1).sort((a,b)=>b.s.wr-a.s.wr||b.d.winPct-a.d.winPct||b.s.w-a.s.w||a.s.ls-b.s.ls||a.s.dd-b.s.dd);console.log('\\n🚀 HIGHEST WR WITH >=4.5 SIGNALS/DAY');if(viable.length){const x=viable[0];console.log(x.ids.join(' + '));console.log('Trades '+x.s.n+' | Wins '+x.s.w+' | Losses '+x.s.l+' | WR '+x.s.wr.toFixed(1)+'%');console.log('Winning Days '+x.d.winPct.toFixed(1)+'% | Avg '+x.d.avg.toFixed(2)+'/day | D5+ '+x.d.d5+' | LS '+x.s.ls+' | DD '+x.s.dd.toFixed(2)+'R | PF '+x.s.pf.toFixed(2)+' | Net '+x.s.net.toFixed(2)+'R');console.log(x.s.wr>=70?'🎉 70% TARGET HIT IN DISCOVERY — NEEDS OOS':x.s.wr>=67?'🔥 VERY CLOSE — NEEDS OOS':'🧪 Expanded candidate ceiling still below 67%; quality-filter research is next.')}else console.log('No candidate passed activity/sample gates.');console.log('\\n🔒 RESEARCH ONLY — LIVE SIX STRATEGIES UNTOUCHED.');
+`;
+s=s.slice(0,mi)+tail+s.slice(close);fs.writeFileSync(tmp,s);console.log('🧠 SIX STRATEGY 70WR MEGA OPTIMIZER');console.log('📅 '+FROM+' → '+TO);console.log('🔎 6×6×6×8×6×7 = 72,576 ALL-SIX portfolio combinations');const r=spawnSync(process.execPath,[tmp,FROM,TO],{stdio:'inherit',env:process.env});try{fs.unlinkSync(tmp)}catch{}process.exit(r.status??1);
