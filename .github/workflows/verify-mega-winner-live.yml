@@ -1,0 +1,21 @@
+name: Verify Mega Winner Live
+on:
+  push:
+    branches: [live/mega-winner-e2-r3-g1-p1-n4-s0]
+  pull_request:
+    branches: [main]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node --check src/services/autoSignals.js
+      - run: node --check src/services/goldScalper.js
+      - run: node --check src/services/tradeMonitor.js
+      - run: node --check src/services/scalpStrategies/proStrategy.js
+      - run: node scripts/verify-mega-winner-live.js
