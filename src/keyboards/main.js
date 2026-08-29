@@ -24,6 +24,7 @@ const mainKeyboard = (
 const marketKeyboard = (language = 'ar') => {
   const { buttons } = tByLang(language);
   return Markup.keyboard([
+    [language === 'en' ? '📊 Bot Results' : '📊 نتائج البوت'],
     [buttons.scanner, buttons.marketMap],
     [language === 'en' ? '🧪 My Strategy' : '🧪 استراتيجيتي'],
     [buttons.trendHunter, buttons.analysis],
