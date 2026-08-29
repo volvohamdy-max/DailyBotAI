@@ -11,6 +11,7 @@ const mainKeyboard = (
   const rows = [
     [language === 'en' ? '🥇 Check Your Trade' : '🥇 اختبر صفقتك'],
     [language === 'en' ? '🤖 Monitor My Trade' : '🤖 راقب صفقتي'],
+    [language === 'en' ? '📊 Bot Results' : '📊 نتائج البوت'],
     [buttons.tradeNow, buttons.bestOpportunity],
     [buttons.marketCenter, buttons.alertsCenter],
     [buttons.accountCenter, buttons.more]
