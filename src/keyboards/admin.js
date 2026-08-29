@@ -3,6 +3,10 @@ const { Markup } = require('telegraf');
 const adminKeyboard = () => Markup.inlineKeyboard([
 
     [
+        Markup.button.callback('🎛️ مركز قيادة التداول', 'admin_command_center'),
+    ],
+
+    [
         Markup.button.callback('📊 الإحصائيات', 'admin_stats'),
     ],
 
