@@ -14,9 +14,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node --check src/services/autoSignals.js
-      - run: node --check src/services/goldScalper.js
-      - run: node --check src/services/tradeMonitor.js
-      - run: node --check src/services/scalpStrategies/proStrategy.js
-      - run: node scripts/verify-mega-winner-live.js
+      - run: node scripts/verify-live-static.js
+      - run: node --check src/services/scalpStrategies/proStrategyMegaP1.js
+      - run: node --check src/services/scalpStrategies/goldRangeMrMegaN4.js
+      - run: node scripts/verify-mega-winner-runtime.js
       - run: node scripts/smoke-mega-winner-modules.js
