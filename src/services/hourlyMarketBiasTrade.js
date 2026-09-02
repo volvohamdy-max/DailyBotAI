@@ -1,11 +1,16 @@
 const { analyzePair } = require('./analysisService');
 const { getCandles } = require('./marketService');
 const { calculateTradeLevels } = require('./tradeEngine');
+const { runSignalLab } = require('./signalLab');
 const { addTrade, getOpenTrades } = require('../database/trades');
 const config = require('../config');
 
 const SOURCE_PREFIX = 'VIP_HOURLY_MARKET_BIAS';
 const MIN_SCORE = 70;
+const MIN_LAB_SCORE = 50;
+const MIN_LAB_SIMILAR = 2;
+const MIN_LAB_TP1 = 50;
+const MAX_LAB_SL = 50;
 
 function finite(value) {
   const n = Number(value);
@@ -92,7 +97,6 @@ async function runHourlyMarketBiasTrade(bot) {
   const { score, marketDirection } = directionalMarketScore(analysis, direction);
   const confidence = Number(analysis?.signal?.confidence || 0);
 
-  // Hourly Check Your Trade gate: score 70+ is enough. Signal Lab is intentionally not used here.
   if (marketDirection !== direction || score < MIN_SCORE) {
     console.log(
       `🥇 AUTO TRADE CHECK | WAIT | ${direction} | score=${score}/100 | AI=${Number.isFinite(confidence) ? confidence : 0}%`
@@ -103,6 +107,23 @@ async function runHourlyMarketBiasTrade(bot) {
   const levels = calculateTradeLevels(candles, direction, 'XAUUSD');
   if (!levels) {
     console.log('🥇 AUTO TRADE CHECK | WAIT | unable to calculate trade levels');
+    return false;
+  }
+
+  // Relaxed Signal Lab gate for the hourly automatic Check Your Trade only.
+  const lab = await runSignalLab('XAUUSD', analysis.indicators, direction, { timeframe });
+  const labApproved =
+    Number(lab?.similarSetups || 0) >= MIN_LAB_SIMILAR &&
+    Number(lab?.historicalScore || 0) >= MIN_LAB_SCORE &&
+    Number(lab?.tp1Rate || 0) >= MIN_LAB_TP1 &&
+    Number(lab?.slRate ?? 100) <= MAX_LAB_SL;
+
+  if (!labApproved) {
+    console.log(
+      `🧪 AUTO TRADE CHECK | BLOCKED BY RELAXED SIGNAL LAB | ${direction} | score=${score}/100 | ` +
+      `similar=${lab?.similarSetups || 0} | historical=${lab?.historicalScore || 0}/100 | ` +
+      `TP1=${lab?.tp1Rate || 0}% | SL=${lab?.slRate ?? 0}%`
+    );
     return false;
   }
 
@@ -147,7 +168,14 @@ async function runHourlyMarketBiasTrade(bot) {
     '',
     `⭐ قوة الصفقة: ${score}/100`,
     `🤖 ثقة AI: ${Number.isFinite(confidence) ? confidence : 0}%`,
-    '✅ معتمدة بالسكور — الحد الأدنى 70/100',
+    '',
+    '🧪 SIGNAL LAB — فلتر مخفف',
+    `📚 الحالات التاريخية المشابهة: ${lab.similarSetups}`,
+    `⭐ التقييم التاريخي: ${lab.historicalScore}/100`,
+    `🎯 وصول TP1 تاريخيًا: ${lab.tp1Rate}%`,
+    `🏆 وصول TP2 تاريخيًا: ${lab.tp2Rate}%`,
+    `🛑 وصول SL تاريخيًا: ${lab.slRate}%`,
+    '✅ معتمدة: Score 70+ + Signal Lab المخفف',
     '',
     `⏱️ فريم التحليل: ${timeframe}`
   ].join('\n');
@@ -162,7 +190,8 @@ async function runHourlyMarketBiasTrade(bot) {
     await bot.telegram.sendMessage(chatId, message);
     console.log(
       `💎 AUTO TRADE CHECK SENT | Trade #${tradeId} | XAUUSD ${direction} | ` +
-      `score=${score}/100 | AI=${Number.isFinite(confidence) ? confidence : 0}% | gate=SCORE70`
+      `score=${score}/100 | AI=${Number.isFinite(confidence) ? confidence : 0}% | ` +
+      `SignalLab=${lab.historicalScore}/100 | gate=RELAXED`
     );
     return true;
   } catch (error) {
