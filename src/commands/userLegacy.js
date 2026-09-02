@@ -1839,11 +1839,14 @@ Choose how you would like to continue:`
       createVipRequest(ctx.from.id, key);
       await ctx.answerCbQuery();
 
-      return ctx.reply(
+      await ctx.reply(
         isEnglish(ctx)
-          ? `✅ Your ${plan.label} request has been recorded. Send the payment proof here and it will be forwarded to the admin.`
-          : `✅ تم تسجيل طلب خطة ${plan.label}. أرسل إثبات الدفع هنا وسيصل للإدارة.`
+          ? `💳 Payment method: USDT — TRC20\n\nAfter payment, send the payment proof here.`
+          : `💳 طريقة الدفع: USDT — TRC20\n\nبعد التحويل أرسل صورة إثبات الدفع هنا.`
       );
+
+      // Wallet address must be sent alone for easy copy.
+      return ctx.reply(config.paymentInfo);
     });
   });
 

@@ -11,7 +11,7 @@ module.exports = {
   openaiApiKey: process.env.OPENAI_API_KEY || '',
   openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
   databasePath: process.env.DATABASE_PATH || './data/bot.sqlite',
-  paymentInfo: process.env.PAYMENT_INFO || 'تواصل مع الأدمن لإتمام الدفع.',
+  paymentInfo: process.env.PAYMENT_INFO || 'TARqGhrqiLCH3mxKVLey6vRy3e7CUN3XDY',
   referralRewardPoints: Number(process.env.REFERRAL_REWARD_POINTS || 10),
   vipReferralBonusDays: Number(process.env.VIP_REFERRAL_BONUS_DAYS || 3),
   signalCron: process.env.SIGNAL_CRON || '*/30 * * * *',
