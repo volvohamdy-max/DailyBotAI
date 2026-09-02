@@ -25,18 +25,21 @@ function createOrUpdateUser(from, startPayload) {
       const referrer = db.prepare('SELECT * FROM users WHERE referral_code = ?').get(referrerCode);
 
       if (referrer) {
-        db.prepare(`
+        const referralResult = db.prepare(`
           INSERT OR IGNORE INTO referrals (referrer_id, referred_id, reward_points)
           VALUES (?, ?, ?)
         `).run(referrer.telegram_id, telegramId, config.referralRewardPoints);
 
-        db.prepare(`
-          UPDATE users
-          SET points = points + ?, updated_at = CURRENT_TIMESTAMP
-          WHERE telegram_id = ?
-        `).run(config.referralRewardPoints, referrer.telegram_id);
+        // Reward only when a brand-new referral was actually recorded.
+        if (referralResult.changes > 0) {
+          db.prepare(`
+            UPDATE users
+            SET points = points + ?, updated_at = CURRENT_TIMESTAMP
+            WHERE telegram_id = ?
+          `).run(config.referralRewardPoints, referrer.telegram_id);
 
-        checkReferralReward(referrer.telegram_id);
+          checkReferralReward(referrer.telegram_id);
+        }
       }
     }
   } else {
@@ -45,6 +48,60 @@ function createOrUpdateUser(from, startPayload) {
       SET first_name = ?, username = ?, updated_at = CURRENT_TIMESTAMP
       WHERE telegram_id = ?
     `).run(from.first_name || '', from.username || '', telegramId);
+
+    // Allow an existing user to claim a referral only if they
+    // have never been attributed to any referrer before.
+    if (
+      referrerCode &&
+      referrerCode !== code &&
+      !existing.referred_by
+    ) {
+      const alreadyReferred = db.prepare(`
+        SELECT 1
+        FROM referrals
+        WHERE referred_id = ?
+        LIMIT 1
+      `).get(telegramId);
+
+      const referrer = db.prepare(`
+        SELECT *
+        FROM users
+        WHERE referral_code = ?
+      `).get(referrerCode);
+
+      if (!alreadyReferred && referrer) {
+        const referralResult = db.prepare(`
+          INSERT OR IGNORE INTO referrals
+            (referrer_id, referred_id, reward_points)
+          VALUES (?, ?, ?)
+        `).run(
+          referrer.telegram_id,
+          telegramId,
+          config.referralRewardPoints
+        );
+
+        if (referralResult.changes > 0) {
+          db.prepare(`
+            UPDATE users
+            SET referred_by = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE telegram_id = ?
+          `).run(referrerCode, telegramId);
+
+          db.prepare(`
+            UPDATE users
+            SET points = points + ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE telegram_id = ?
+          `).run(
+            config.referralRewardPoints,
+            referrer.telegram_id
+          );
+
+          checkReferralReward(referrer.telegram_id);
+        }
+      }
+    }
   }
 
   return findUser(telegramId);
