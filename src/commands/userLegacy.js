@@ -1839,14 +1839,22 @@ Choose how you would like to continue:`
       createVipRequest(ctx.from.id, key);
       await ctx.answerCbQuery();
 
+      // 1) Payment method
       await ctx.reply(
         isEnglish(ctx)
-          ? `💳 Payment method: USDT — TRC20\n\nAfter payment, send the payment proof here.`
-          : `💳 طريقة الدفع: USDT — TRC20\n\nبعد التحويل أرسل صورة إثبات الدفع هنا.`
+          ? '💳 Payment method: USDT — TRC20'
+          : '💳 طريقة الدفع: USDT — TRC20'
       );
 
-      // Wallet address must be sent alone for easy copy.
-      return ctx.reply(config.paymentInfo);
+      // 2) Wallet address alone for easy copy
+      await ctx.reply(config.paymentInfo);
+
+      // 3) Ask for payment proof only after sending the wallet
+      return ctx.reply(
+        isEnglish(ctx)
+          ? '📸 After payment, send the payment proof here.'
+          : '📸 بعد التحويل أرسل صورة إثبات الدفع هنا.'
+      );
     });
   });
 
