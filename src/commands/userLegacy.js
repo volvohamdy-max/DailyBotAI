@@ -1847,7 +1847,7 @@ Choose how you would like to continue:`
       );
 
       // 2) Wallet address alone for easy copy
-      await ctx.reply(config.paymentInfo);
+      await ctx.reply('TARqGhrqiLCH3mxKVLey6vRy3e7CUN3XDy');
 
       // 3) Ask for payment proof only after sending the wallet
       return ctx.reply(
