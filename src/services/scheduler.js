@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const { isForexWeekend } = require('../utils/marketHours');
 const { expireVipUsers } = require('../database/users');
+const { expireVipGroupMembers } = require('./vipGroupManager');
 const { scanMarket } = require('./autoSignals');
 const { monitorTrades } = require('./tradeMonitor');
 const { monitorCopilotTrades } = require('./tradeCopilotScaled');
@@ -26,7 +27,23 @@ function startScheduler(bot) {
 
   cron.schedule('*/5 * * * *',async()=>{if(newsRunning){console.log('⚠️ Previous news check still running');return;}newsRunning=true;console.log('📰 Checking economic news...');try{const results=await Promise.allSettled([checkEconomicNews(bot),checkUpcomingNewsReliable(bot)]);const labels=['release','upcoming'];results.forEach((r,i)=>{if(r.status==='rejected')console.log(`❌ News ${labels[i]} path error:`,r.reason?.message||r.reason);});console.log('✅ News check finished');}catch(err){console.log('❌ News error:',err.message);}finally{newsRunning=false;}});
   cron.schedule('*/10 * * * *',async()=>{if(newsBriefRefreshRunning){console.log('⚠️ Previous daily news brief refresh still running');return;}newsBriefRefreshRunning=true;try{await refreshDailyNewsBrief(bot);}catch(err){console.log('❌ Daily news brief refresh error:',err.message);}finally{newsBriefRefreshRunning=false;}});
-  cron.schedule('5 * * * *',async()=>{try{const expiredUsers=expireVipUsers();if(expiredUsers.length>0){console.log(`✅ Expired VIP users: ${expiredUsers.length}`);for(const user of expiredUsers){try{await bot.telegram.sendMessage(user.telegram_id,'⏰ انتهى اشتراك VIP الخاص بك.\n\nيمكنك التجديد من خلال:\n💎 /vip');}catch(e){console.log('VIP message error:',e.message);}}}}catch(err){console.log('❌ VIP expiration error:',err.message);}});
+
+  // Every hour, expire database access and remove the same users from the VIP
+  // Telegram group/channel. Ban + immediate unban means they may rejoin after renewal.
+  cron.schedule('5 * * * *',async()=>{
+    try {
+      const expiredUsers=expireVipUsers();
+      if(expiredUsers.length===0)return;
+      console.log(`⏰ Expired VIP users: ${expiredUsers.length}`);
+      const results=await expireVipGroupMembers(bot,expiredUsers);
+      const removed=results.filter(x=>x.ok).length;
+      const failed=results.filter(x=>!x.ok&&!x.skipped).length;
+      console.log(`👥 VIP group expiry sync | removed=${removed} failed=${failed}`);
+      for(const item of results){if(item.error)console.log(`VIP group removal failed for ${item.telegramId}:`,item.error.message);}
+    } catch(err) {
+      console.log('❌ VIP expiration error:',err.message);
+    }
+  });
 
   // Strong Market Bias: scan continuously for quality, not at the top of the hour.
   // It never stacks its own trades; the service skips while one of its trades is open.
