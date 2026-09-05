@@ -17,10 +17,13 @@ module.exports = {
   signalCron: process.env.SIGNAL_CRON || '*/30 * * * *',
   twelveDataKey: process.env.TWELVE_DATA_KEY || '',
   marketApiUrl: process.env.MARKET_API_URL || '',
-eodhdApiKey: process.env.EODHD_API_KEY || '',
-finnhubKey: process.env.FINNHUB_API_KEY || '',
-mainGroupId: process.env.MAIN_GROUP_ID,
-mainGroupLink: process.env.MAIN_GROUP_LINK,
-alphaVantageKey: process.env.ALPHA_VANTAGE_API_KEY || '',
-vipChannelId: process.env.VIP_CHANNEL_ID,
+  eodhdApiKey: process.env.EODHD_API_KEY || '',
+  finnhubKey: process.env.FINNHUB_API_KEY || '',
+  mainGroupId: process.env.MAIN_GROUP_ID,
+  mainGroupLink: process.env.MAIN_GROUP_LINK,
+  alphaVantageKey: process.env.ALPHA_VANTAGE_API_KEY || '',
+  vipChannelId: process.env.VIP_CHANNEL_ID,
+  // Optional separate VIP group. If omitted, membership management falls back
+  // to VIP_CHANNEL_ID so existing installations keep working.
+  vipGroupId: process.env.VIP_GROUP_ID || process.env.VIP_CHANNEL_ID,
 };
