@@ -41,16 +41,15 @@ if (missingPackages.length > 0) {
   process.exit(1);
 }
 
-// ONE routing layer only. Do not stack marketService wrappers.
-//   XAU candles: PAXG/XAUT Proxy -> SiftingIO -> TwelveData -> Dukascopy -> Massive
-//   XAU live price: GoldAPI -> SiftingIO -> Massive
-//   FX candles: SiftingIO -> TwelveData -> Dukascopy emergency
-// BTCUSD stays on the native Binance path.
+// Base market routing. Strategy logic is unchanged.
 require('./src/services/installFinalMarketPriority');
 
-// Operational guards only: stagger observational jobs, stop repeated provider
-// quota hits, and route GOLD H4 long-history recovery away from direct Sifting
-// calls during rate-limit pressure. Strategy logic itself is unchanged.
+// XAU execution/live display price comes directly from Binance-backed gold
+// proxies (PAXGUSDT, then XAUTUSDT). This removes GoldAPI/Sifting from the
+// live-price critical path while preserving the rest of the market routing.
+require('./src/services/installBinanceGoldLivePrice');
+
+// Operational provider-pressure guards only.
 require('./src/services/installProviderPressureGuards');
 
 console.log('Loading Telegram Forex AI bot source...');
