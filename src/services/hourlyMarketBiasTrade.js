@@ -6,15 +6,14 @@ const config = require('../config');
 
 const SOURCE_PREFIX = 'VIP_HOURLY_MARKET_BIAS';
 const MIN_SCORE = 90;
-const MAX_SL_DISTANCE = 7;
-const MAX_TP_DISTANCE = 9;
+const SL_DISTANCE = 7;
+const TP_DISTANCE = 7;
 
 function finite(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
 
-// Same scoring engine used by "Check Your Trade".
 function directionalMarketScore(analysis, selectedDirection) {
   const indicators = analysis?.indicators || {};
   const ema20 = Number(indicators.ema20);
@@ -33,28 +32,21 @@ function directionalMarketScore(analysis, selectedDirection) {
 
   let score = 0;
   if (selectedDirection === marketDirection) score += 35;
-
   if (Number.isFinite(ema20) && Number.isFinite(ema50)) {
     if (selectedDirection === 'BUY' && ema20 > ema50) score += 20;
     if (selectedDirection === 'SELL' && ema20 < ema50) score += 20;
   }
-
   if (Number.isFinite(rsi)) {
     if (selectedDirection === 'BUY' && rsi >= 50 && rsi <= 70) score += 15;
     if (selectedDirection === 'SELL' && rsi <= 50 && rsi >= 30) score += 15;
   }
-
   if (Number.isFinite(macd) && Number.isFinite(macdSignal)) {
     if (selectedDirection === 'BUY' && macd > macdSignal) score += 15;
     if (selectedDirection === 'SELL' && macd < macdSignal) score += 15;
   }
-
   if (Number.isFinite(adx) && adx >= 25) score += 15;
 
-  return {
-    score: Math.max(0, Math.min(100, score)),
-    marketDirection
-  };
+  return { score: Math.max(0, Math.min(100, score)), marketDirection };
 }
 
 function hasOpenBiasTrade() {
@@ -85,19 +77,13 @@ async function runHourlyMarketBiasTrade(bot) {
   }
 
   const liveAction = String(analysis?.signal?.action || '').toUpperCase();
-  const fallbackDirection =
-    Number(analysis.indicators.ema20) >= Number(analysis.indicators.ema50)
-      ? 'BUY'
-      : 'SELL';
+  const fallbackDirection = Number(analysis.indicators.ema20) >= Number(analysis.indicators.ema50) ? 'BUY' : 'SELL';
   const direction = ['BUY', 'SELL'].includes(liveAction) ? liveAction : fallbackDirection;
-
   const { score, marketDirection } = directionalMarketScore(analysis, direction);
   const confidence = Number(analysis?.signal?.confidence || 0);
 
   if (marketDirection !== direction || score < MIN_SCORE) {
-    console.log(
-      `🥇 AUTO TRADE CHECK | WAIT | ${direction} | score=${score}/100 | AI=${Number.isFinite(confidence) ? confidence : 0}%`
-    );
+    console.log(`🥇 AUTO TRADE CHECK | WAIT | ${direction} | score=${score}/100 | AI=${Number.isFinite(confidence) ? confidence : 0}%`);
     return false;
   }
 
@@ -108,24 +94,15 @@ async function runHourlyMarketBiasTrade(bot) {
   }
 
   const entry = finite(levels.entry);
-  const rawSl = finite(levels.sl ?? levels.stopLoss);
-  const rawTp1 = finite(levels.tp1 ?? levels.target1);
-  const rawTp2 = finite(levels.tp2 ?? levels.target2);
-
-  if (entry == null || rawSl == null || rawTp1 == null || rawTp2 == null) {
-    console.log('🥇 AUTO TRADE CHECK | WAIT | invalid trade levels');
+  if (entry == null) {
+    console.log('🥇 AUTO TRADE CHECK | WAIT | invalid entry');
     return false;
   }
 
-  // Keep the engine's closer levels, but never allow this auto setup to risk more than $7
-  // or target farther than $9 from entry.
-  const slDistance = Math.min(Math.abs(entry - rawSl), MAX_SL_DISTANCE);
-  const tp1Distance = Math.min(Math.abs(rawTp1 - entry), MAX_TP_DISTANCE);
-  const tp2Distance = Math.min(Math.abs(rawTp2 - entry), MAX_TP_DISTANCE);
-
-  const sl = direction === 'BUY' ? entry - slDistance : entry + slDistance;
-  const tp1 = direction === 'BUY' ? entry + tp1Distance : entry - tp1Distance;
-  const tp2 = direction === 'BUY' ? entry + tp2Distance : entry - tp2Distance;
+  // Fixed 1:1 structure requested for this auto setup: $7 stop and $7 profit from entry.
+  const sl = direction === 'BUY' ? entry - SL_DISTANCE : entry + SL_DISTANCE;
+  const tp1 = direction === 'BUY' ? entry + TP_DISTANCE : entry - TP_DISTANCE;
+  const tp2 = tp1;
 
   const source = `${SOURCE_PREFIX}_CHECKTRADE_${opportunityKey()}`;
   const inserted = addTrade({
@@ -153,13 +130,12 @@ async function runHourlyMarketBiasTrade(bot) {
     '',
     `💰 الدخول: ${entry.toFixed(2)}`,
     `🛑 وقف الخسارة: ${sl.toFixed(2)}`,
-    `🎯 الهدف الأول TP1: ${tp1.toFixed(2)}`,
-    `🏆 الهدف الثاني TP2: ${tp2.toFixed(2)}`,
+    `🎯 جني الأرباح: ${tp1.toFixed(2)}`,
     '',
     `⭐ قوة الصفقة: ${score}/100`,
     `🤖 ثقة AI: ${Number.isFinite(confidence) ? confidence : 0}%`,
     '',
-    '⚙️ SL/TP ديناميكي | الحد الأقصى: SL $7 / TP $9',
+    '⚙️ المخاطرة/العائد: $7 / $7 (1:1)',
     `⏱️ فريم التحليل: ${timeframe}`
   ].join('\n');
 
@@ -171,11 +147,7 @@ async function runHourlyMarketBiasTrade(bot) {
 
   try {
     await bot.telegram.sendMessage(chatId, message);
-    console.log(
-      `💎 AUTO TRADE CHECK SENT | Trade #${tradeId} | XAUUSD ${direction} | ` +
-      `score=${score}/100 | AI=${Number.isFinite(confidence) ? confidence : 0}% | ` +
-      `SLdist=${slDistance.toFixed(2)} | TP1dist=${tp1Distance.toFixed(2)} | TP2dist=${tp2Distance.toFixed(2)}`
-    );
+    console.log(`💎 AUTO TRADE CHECK SENT | Trade #${tradeId} | XAUUSD ${direction} | score=${score}/100 | AI=${Number.isFinite(confidence) ? confidence : 0}% | SLdist=7.00 | TPdist=7.00`);
     return true;
   } catch (error) {
     console.log(`❌ AUTO TRADE CHECK VIP SEND FAILED | Trade #${tradeId} | ${error.message}`);
@@ -191,8 +163,4 @@ function currentMarketDirection(analysis) {
   return getMarketDirection(analysis);
 }
 
-module.exports = {
-  runHourlyMarketBiasTrade,
-  getMarketDirection,
-  currentMarketDirection
-};
+module.exports = { runHourlyMarketBiasTrade, getMarketDirection, currentMarketDirection };
