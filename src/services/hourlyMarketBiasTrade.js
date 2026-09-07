@@ -1,7 +1,6 @@
 const { analyzePair } = require('./analysisService');
 const { getCandles } = require('./marketService');
 const { calculateTradeLevels } = require('./tradeEngine');
-const { runSignalLab } = require('./signalLab');
 const { addTrade, getOpenTrades } = require('../database/trades');
 const config = require('../config');
 
@@ -67,7 +66,7 @@ function opportunityKey(date = new Date()) {
 }
 
 async function runHourlyMarketBiasTrade(bot) {
-  // Do not stack automatic Check Your Trade positions.
+  // One automatic market-bias trade at a time.
   if (hasOpenBiasTrade()) {
     console.log('🥇 AUTO TRADE CHECK | existing trade still open | scan skipped');
     return false;
@@ -94,7 +93,7 @@ async function runHourlyMarketBiasTrade(bot) {
   const { score, marketDirection } = directionalMarketScore(analysis, direction);
   const confidence = Number(analysis?.signal?.confidence || 0);
 
-  // Automatic VIP opportunity must be a good setup from the same checker score.
+  // The live gate is intentionally simple: market direction must agree and score must reach 70.
   if (marketDirection !== direction || score < MIN_SCORE) {
     console.log(
       `🥇 AUTO TRADE CHECK | WAIT | ${direction} | score=${score}/100 | AI=${Number.isFinite(confidence) ? confidence : 0}%`
@@ -102,18 +101,10 @@ async function runHourlyMarketBiasTrade(bot) {
     return false;
   }
 
+  // SL/TP remain dynamic and are calculated by the existing trade engine from current candles/volatility.
   const levels = calculateTradeLevels(candles, direction, 'XAUUSD');
   if (!levels) {
     console.log('🥇 AUTO TRADE CHECK | WAIT | unable to calculate trade levels');
-    return false;
-  }
-
-  const lab = await runSignalLab('XAUUSD', analysis.indicators, direction, { timeframe });
-  if (!lab?.approved) {
-    console.log(
-      `🧪 AUTO TRADE CHECK | BLOCKED BY SIGNAL LAB | ${direction} | score=${score}/100 | ` +
-      `historical=${lab?.historicalScore || 0}/100 | ${lab?.reason || 'historical validation failed'}`
-    );
     return false;
   }
 
@@ -159,14 +150,7 @@ async function runHourlyMarketBiasTrade(bot) {
     `⭐ قوة الصفقة: ${score}/100`,
     `🤖 ثقة AI: ${Number.isFinite(confidence) ? confidence : 0}%`,
     '',
-    '🧪 SIGNAL LAB — تاريخ الذهب',
-    `📚 الحالات التاريخية المشابهة: ${lab.similarSetups}`,
-    `⭐ التقييم التاريخي: ${lab.historicalScore}/100`,
-    `🎯 وصول TP1 تاريخيًا: ${lab.tp1Rate}%`,
-    `🏆 وصول TP2 تاريخيًا: ${lab.tp2Rate}%`,
-    `🛑 وصول SL تاريخيًا: ${lab.slRate}%`,
-    '✅ معتمد من Signal Lab',
-    '',
+    '⚙️ SL/TP ديناميكي حسب حركة وتقلب الذهب',
     `⏱️ فريم التحليل: ${timeframe}`
   ].join('\n');
 
@@ -180,8 +164,7 @@ async function runHourlyMarketBiasTrade(bot) {
     await bot.telegram.sendMessage(chatId, message);
     console.log(
       `💎 AUTO TRADE CHECK SENT | Trade #${tradeId} | XAUUSD ${direction} | ` +
-      `score=${score}/100 | AI=${Number.isFinite(confidence) ? confidence : 0}% | ` +
-      `SignalLab=${lab.historicalScore}/100`
+      `score=${score}/100 | AI=${Number.isFinite(confidence) ? confidence : 0}%`
     );
     return true;
   } catch (error) {
