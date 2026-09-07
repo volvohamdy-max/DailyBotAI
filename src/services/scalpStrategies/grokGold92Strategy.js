@@ -3,7 +3,7 @@ const { getGoldCandlesResilient } = require('../goldCandleRecovery');
 
 const CONFIG = {
   id: 'GROK_GOLD_92', label: '⚡ Grok Gold 92', pair: 'XAUUSD', fastEma: 9, slowEma: 21,
-  rsiPeriod: 14, atrPeriod: 14, volumePeriod: 20, volumeSpikeMult: 1.25, stopAtr: 2.0,
+  rsiPeriod: 14, atrPeriod: 14, volumePeriod: 20, volumeSpikeMult: 1.25, stopAtr: 1.5,
   rewardR: 0.8, adxMin: 20, rsiBuyMin: 52, rsiSellMax: 48, emaGapAtr: 0.04,
   h1DistanceAtr: 0.10, sessionsUTC: [[0, 24]]
 };
