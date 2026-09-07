@@ -6,6 +6,8 @@ const config = require('../config');
 
 const SOURCE_PREFIX = 'VIP_HOURLY_MARKET_BIAS';
 const MIN_SCORE = 70;
+const MAX_SL_DISTANCE = 7;
+const MAX_TP_DISTANCE = 9;
 
 function finite(value) {
   const n = Number(value);
@@ -66,7 +68,6 @@ function opportunityKey(date = new Date()) {
 }
 
 async function runHourlyMarketBiasTrade(bot) {
-  // One automatic market-bias trade at a time.
   if (hasOpenBiasTrade()) {
     console.log('🥇 AUTO TRADE CHECK | existing trade still open | scan skipped');
     return false;
@@ -93,7 +94,6 @@ async function runHourlyMarketBiasTrade(bot) {
   const { score, marketDirection } = directionalMarketScore(analysis, direction);
   const confidence = Number(analysis?.signal?.confidence || 0);
 
-  // The live gate is intentionally simple: market direction must agree and score must reach 70.
   if (marketDirection !== direction || score < MIN_SCORE) {
     console.log(
       `🥇 AUTO TRADE CHECK | WAIT | ${direction} | score=${score}/100 | AI=${Number.isFinite(confidence) ? confidence : 0}%`
@@ -101,7 +101,6 @@ async function runHourlyMarketBiasTrade(bot) {
     return false;
   }
 
-  // SL/TP remain dynamic and are calculated by the existing trade engine from current candles/volatility.
   const levels = calculateTradeLevels(candles, direction, 'XAUUSD');
   if (!levels) {
     console.log('🥇 AUTO TRADE CHECK | WAIT | unable to calculate trade levels');
@@ -109,14 +108,24 @@ async function runHourlyMarketBiasTrade(bot) {
   }
 
   const entry = finite(levels.entry);
-  const sl = finite(levels.sl ?? levels.stopLoss);
-  const tp1 = finite(levels.tp1 ?? levels.target1);
-  const tp2 = finite(levels.tp2 ?? levels.target2);
+  const rawSl = finite(levels.sl ?? levels.stopLoss);
+  const rawTp1 = finite(levels.tp1 ?? levels.target1);
+  const rawTp2 = finite(levels.tp2 ?? levels.target2);
 
-  if (entry == null || sl == null || tp1 == null || tp2 == null) {
+  if (entry == null || rawSl == null || rawTp1 == null || rawTp2 == null) {
     console.log('🥇 AUTO TRADE CHECK | WAIT | invalid trade levels');
     return false;
   }
+
+  // Keep the engine's closer levels, but never allow this auto setup to risk more than $7
+  // or target farther than $9 from entry.
+  const slDistance = Math.min(Math.abs(entry - rawSl), MAX_SL_DISTANCE);
+  const tp1Distance = Math.min(Math.abs(rawTp1 - entry), MAX_TP_DISTANCE);
+  const tp2Distance = Math.min(Math.abs(rawTp2 - entry), MAX_TP_DISTANCE);
+
+  const sl = direction === 'BUY' ? entry - slDistance : entry + slDistance;
+  const tp1 = direction === 'BUY' ? entry + tp1Distance : entry - tp1Distance;
+  const tp2 = direction === 'BUY' ? entry + tp2Distance : entry - tp2Distance;
 
   const source = `${SOURCE_PREFIX}_CHECKTRADE_${opportunityKey()}`;
   const inserted = addTrade({
@@ -150,7 +159,7 @@ async function runHourlyMarketBiasTrade(bot) {
     `⭐ قوة الصفقة: ${score}/100`,
     `🤖 ثقة AI: ${Number.isFinite(confidence) ? confidence : 0}%`,
     '',
-    '⚙️ SL/TP ديناميكي حسب حركة وتقلب الذهب',
+    '⚙️ SL/TP ديناميكي | الحد الأقصى: SL $7 / TP $9',
     `⏱️ فريم التحليل: ${timeframe}`
   ].join('\n');
 
@@ -164,7 +173,8 @@ async function runHourlyMarketBiasTrade(bot) {
     await bot.telegram.sendMessage(chatId, message);
     console.log(
       `💎 AUTO TRADE CHECK SENT | Trade #${tradeId} | XAUUSD ${direction} | ` +
-      `score=${score}/100 | AI=${Number.isFinite(confidence) ? confidence : 0}%`
+      `score=${score}/100 | AI=${Number.isFinite(confidence) ? confidence : 0}% | ` +
+      `SLdist=${slDistance.toFixed(2)} | TP1dist=${tp1Distance.toFixed(2)} | TP2dist=${tp2Distance.toFixed(2)}`
     );
     return true;
   } catch (error) {
@@ -173,7 +183,6 @@ async function runHourlyMarketBiasTrade(bot) {
   }
 }
 
-// Kept for compatibility with existing imports/tests.
 function getMarketDirection(analysis) {
   return directionalMarketScore(analysis, 'BUY').marketDirection;
 }
