@@ -1,43 +1,28 @@
 'use strict';
-const fs = require('fs');
-const path = require('path');
-const { spawnSync } = require('child_process');
-const ROOT = path.resolve(__dirname, '..');
-const PERIOD = { from: process.env.BACKTEST_FROM || '2025-08-24', to: process.env.BACKTEST_TO || '2026-08-24' };
-const LIVE = [
-  ['EXHAUSTION', ['scripts/backtest-gold-exhaustion-v3-dollar-floor.js','scripts/backtest-gold-exhaustion-v3-cost-dollar.js'], ['gold-exhaustion-v3']],
-  ['RAPID', ['scripts/backtest-gold-rapid-scalp-diagnostics.js'], ['gold-rapid-scalp','rapid-scalp']],
-  ['GROK92', ['scripts/backtest-grok-gold92-diagnostics.js'], ['grok-gold92','grok-gold-92']],
-  ['PRO', ['scripts/backtest-pro-strategy-live.js','scripts/backtest-pro-strategy.js'], ['pro-strategy']],
-  ['RANGE', ['scripts/backtest-gold-range-mr-diagnostics.js'], ['gold-range-mr','range-mr']],
-  ['SWEEP5', ['scripts/backtest-gold-sweep5-diagnostics.js'], ['gold-sweep5','sweep5']],
-  ['MICRO', ['scripts/backtest-gold-micro-pullback.js','scripts/backtest-gold-micro-pullback-diagnostics.js'], ['gold-micro-pullback','micro-pullback']]
-];
-function exists(f) { return fs.existsSync(path.join(ROOT, f)); }
-function allRunners() { return fs.readdirSync(path.join(ROOT,'scripts')).filter(x => /^backtest.*\.js$/i.test(x) && x !== path.basename(__filename)).map(x => 'scripts/' + x); }
-function findRunner(item) { for (const f of item[1]) if (exists(f)) return f; const a=allRunners(); for (const h of item[2]) { const z=a.find(f => f.toLowerCase().includes(h)); if(z) return z; } return null; }
-function run(f) { return spawnSync(process.execPath,[path.join(ROOT,f)],{cwd:ROOT,env:{...process.env,BACKTEST_FROM:PERIOD.from,BACKTEST_TO:PERIOD.to,READ_ONLY_BACKTEST:'1'},encoding:'utf8',maxBuffer:30*1024*1024}); }
-function parse(s) {
-  let m=s.match(/\bALL\s+T(\d+)\s+WR\+?([\d.]+)%\s+PF([\d.]+)\s+(?:Net|N)([+-]?[\d.]+)R\s+DD([\d.]+)/i);
-  if(m) return {t:+m[1],wr:+m[2],pf:+m[3],net:+m[4],dd:+m[5]};
-  m=s.match(/\bALL\s+(\d+)\s+trades\s*\|\s*WR\s*([\d.]+)%\s*\|\s*Net\s*([+-]?[\d.]+)R\s*\|.*?PF\s*([\d.]+)\s*\|\s*DD\s*([\d.]+)/i);
-  if(m) return {t:+m[1],wr:+m[2],net:+m[3],pf:+m[4],dd:+m[5]};
-  m=s.match(/(\d+)\s+trades\s*\|\s*WR\s*([\d.]+)%\s*\|\s*Net\s*([+-]?[\d.]+)R\s*\|\s*PF\s*([\d.]+)\s*\|\s*DD\s*([\d.]+)/i);
-  if(m) return {t:+m[1],wr:+m[2],net:+m[3],pf:+m[4],dd:+m[5]};
-  return null;
+// READ-ONLY portfolio backtest. This file intentionally contains the CURRENT live rules
+// from goldScalper.js strategy files and does not call legacy backtest runners.
+const fs=require('fs'),path=require('path'),N=Number;
+function load(){for(const f of ['xauusd-m5-dukascopy.json','xauusd-m5.json']){const p=path.join(__dirname,'../data',f);if(fs.existsSync(p)){const x=JSON.parse(fs.readFileSync(p));return Array.isArray(x)?x:x.candles||x.data||x.values||[]}}throw Error('Missing M5 candles')}
+let M=load().map(x=>({t:N(x.timestamp??x.time??x.date),o:N(x.open??x.o),h:N(x.high??x.h),l:N(x.low??x.l),c:N(x.close??x.c),v:N(x.volume??x.v??0)})).filter(x=>[x.t,x.o,x.h,x.l,x.c].every(Number.isFinite)).sort((a,b)=>a.t-b.t);if(M[0]?.t<1e12)M.forEach(x=>x.t*=1000);const from=Date.parse(process.env.BACKTEST_FROM||'2025-08-24T00:00:00Z'),to=Date.parse(process.env.BACKTEST_TO||'2026-08-24T23:59:59Z');M=M.filter(x=>x.t>=from-100*864e5&&x.t<=to);const first=M.findIndex(x=>x.t>=from);
+function ema(v,p){let a=Array(v.length).fill(NaN),e=v[0],k=2/(p+1);for(let i=0;i<v.length;i++){if(i)e=v[i]*k+e*(1-k);if(i>=p-1)a[i]=e}return a}function atr(r,p=14){let a=Array(r.length).fill(NaN);for(let i=p;i<r.length;i++){let s=0;for(let j=i-p+1;j<=i;j++){let pc=r[j-1].c;s+=Math.max(r[j].h-r[j].l,Math.abs(r[j].h-pc),Math.abs(r[j].l-pc))}a[i]=s/p}return a}function rsi(v,p=14){let a=Array(v.length).fill(NaN),ag,al;for(let i=1;i<v.length;i++){let d=v[i]-v[i-1],g=Math.max(d,0),l=Math.max(-d,0);if(i===p){let gs=0,ls=0;for(let j=1;j<=p;j++){let z=v[j]-v[j-1];gs+=Math.max(z,0);ls+=Math.max(-z,0)}ag=gs/p;al=ls/p}else if(i>p){ag=(ag*(p-1)+g)/p;al=(al*(p-1)+l)/p}if(i>=p)a[i]=al===0?100:100-100/(1+ag/al)}return a}function adx(r,p=14){let o=Array(r.length).fill(NaN),tr=Array(r.length).fill(0),pd=Array(r.length).fill(0),md=Array(r.length).fill(0);for(let i=1;i<r.length;i++){let up=r[i].h-r[i-1].h,dn=r[i-1].l-r[i].l;pd[i]=up>dn&&up>0?up:0;md[i]=dn>up&&dn>0?dn:0;tr[i]=Math.max(r[i].h-r[i].l,Math.abs(r[i].h-r[i-1].c),Math.abs(r[i].l-r[i-1].c))}let tn=0,pn=0,mn=0,dx=Array(r.length).fill(NaN);for(let i=1;i<=p;i++){tn+=tr[i];pn+=pd[i];mn+=md[i]}for(let i=p;i<r.length;i++){if(i>p){tn=tn-tn/p+tr[i];pn=pn-pn/p+pd[i];mn=mn-mn/p+md[i]}if(tn>0){let a=100*pn/tn,b=100*mn/tn;if(a+b)dx[i]=100*Math.abs(a-b)/(a+b)}}let s=0,n=0;for(let i=p;i<r.length;i++){if(!Number.isFinite(dx[i]))continue;if(n<p){s+=dx[i];n++;if(n===p)o[i]=s/p}else if(Number.isFinite(o[i-1]))o[i]=(o[i-1]*(p-1)+dx[i])/p}return o}function agg(rows,ms){let a=[],z;for(const b of rows){let t=Math.floor(b.t/ms)*ms;if(!z||z.t!==t){z={t,o:b.o,h:b.h,l:b.l,c:b.c,v:b.v};a.push(z)}else{z.h=Math.max(z.h,b.h);z.l=Math.min(z.l,b.l);z.c=b.c;z.v+=b.v}}return a}function atBefore(A,t){let lo=0,hi=A.length-1,z=-1;while(lo<=hi){let q=(lo+hi)>>1;if(A[q].t<t){z=q;lo=q+1}else hi=q-1}return z}
+const C=M.map(x=>x.c),A=atr(M),E9=ema(C,9),E20=ema(C,20),E21=ema(C,21),E50=ema(C,50),R=rsi(C),D=adx(M),H=agg(M,3600000),HC=H.map(x=>x.c),H20=ema(HC,20),H50=ema(HC,50),H200=ema(HC,200),HA=atr(H),HD=adx(H),DAY=agg(M,86400000),DE50=ema(DAY.map(x=>x.c),50);
+function exitFixed(i,side,sl,tp,max){let e=M[i+1]?.o;if(!Number.isFinite(e))return null;for(let j=i+1;j<=Math.min(i+max,M.length-1);j++){let s=side==='BUY'?M[j].l<=sl:M[j].h>=sl,t=side==='BUY'?M[j].h>=tp:M[j].l<=tp;if(s)return -1;if(t)return Math.abs(tp-e)/Math.abs(e-sl)}let q=M[Math.min(i+max,M.length-1)].c;return (side==='BUY'?q-e:e-q)/Math.abs(e-sl)}function push(a,i,side,r){if(i>=first&&M[i].t<=to&&Number.isFinite(r))a.push({i,side,r})}
+let EX=[],RA=[],GR=[],PR=[],RM=[],SW=[],MI=[];
+for(let i=Math.max(first,250);i<M.length-30&&M[i].t<=to;i++){let b=M[i],hr=new Date(b.t).getUTCHours();
+// Exhaustion V3: current live E2 + ATR exits with $2 floors.
+if([4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20].includes(hr)&&A[i]>0&&i>=4){let start=M[i-3].c,end=M[i-1].c,disp=end-start,side=disp<0?'BUY':'SELL',q=side==='BUY'?{burst:2.2,wick:.30}:{burst:2.6,wick:.25};if(Math.abs(disp)>=A[i]*q.burst){let agree=0;for(let k=i-3;k<i;k++)if((disp>0&&M[k].c>M[k].o)||(disp<0&&M[k].c<M[k].o))agree++;let rg=b.h-b.l,uw=(b.h-Math.max(b.o,b.c))/rg,lw=(Math.min(b.o,b.c)-b.l)/rg,wick=side==='BUY'?lw:uw;if(agree>=2&&rg>0&&wick>=q.wick&&M[i+1]){let cf=M[i+1],good=side==='BUY'?(cf.c>b.l+rg*.15&&cf.l>=b.l-A[i]*.25):(cf.c<b.h-rg*.15&&cf.h<=b.h+A[i]*.25);if(good){let e=M[i+2]?.o;if(e){let risk=Math.max(A[i]*1.25,2),rew=Math.max(A[i]*.6,2),sl=side==='BUY'?e-risk:e+risk,tp=side==='BUY'?e+rew:e-rew;push(EX,i,side,exitFixed(i+1,side,sl,tp,3))}}}}}
+// Rapid V5 exact current config.
+if([0,4,11,12,13,14,15,17].includes(hr)&&A[i]>0){let h=atBefore(H,b.t),sep=h>=2?Math.abs(H20[h]-H50[h])/HA[h]:0,bull=h>=2&&HC[h]>H20[h]&&H20[h]>H50[h]&&H20[h]>H20[h-2],bear=h>=2&&HC[h]<H20[h]&&H20[h]<H50[h]&&H20[h]<H20[h-2],hi=Math.max(M[i-3].h,M[i-2].h,M[i-1].h),lo=Math.min(M[i-3].l,M[i-2].l,M[i-1].l),rg=b.h-b.l,body=Math.abs(b.c-b.o),pos=(b.c-b.l)/rg,side=bull&&b.c>hi&&pos>=.72&&b.c>E20[i]?'BUY':bear&&b.c<lo&&pos<=.28&&b.c<E20[i]?'SELL':null;if(side&&sep>=.08&&body/A[i]>=.65&&rg/A[i]<=2&&Math.abs(b.c-E20[i])/A[i]<=1.5){let e=M[i+1].o,swing=side==='BUY'?Math.min(b.l,M[i-1].l):Math.max(b.h,M[i-1].h),risk=Math.max(A[i]*.65,Math.abs(e-swing));if(risk<=A[i]*1.35){let sl=side==='BUY'?e-risk:e+risk,tp=side==='BUY'?e+risk:e-risk;push(RA,i,side,exitFixed(i,side,sl,tp,8))}}}
+// Grok92 current: stopAtr 1.5, reward .8.
+if(A[i]>0){let up=E9[i-1]<=E21[i-1]&&E9[i]>E21[i],dn=E9[i-1]>=E21[i-1]&&E9[i]<E21[i],side=up&&R[i]>52?'BUY':dn&&R[i]<48?'SELL':null;if(side&&Math.abs(E9[i]-E21[i])/A[i]>=.04){let va=M.slice(i-20,i).reduce((s,x)=>s+x.v,0)/20,h=atBefore(H,b.t);if(va>0&&b.v>=va*1.25&&h>=220&&HD[h]>=20&&HA[h]>0){let bias=HC[h]>H200[h]?'BUY':HC[h]<H200[h]?'SELL':null;if(side===bias&&Math.abs(HC[h]-H200[h])/HA[h]>=.10){let e=M[i+1].o,risk=A[i]*1.5,sl=side==='BUY'?e-risk:e+risk,tp=side==='BUY'?e+risk*.8:e-risk*.8;push(GR,i,side,exitFixed(i,side,sl,tp,24))}}}}
+// Pro Mega P1 current entry/filter/SL and RSI exit.
+if(!new Set([1,2,3,4,5,15,16,21,22,23]).has(hr)&&A[i]>0&&D[i]>=18){let av=A.slice(i-50,i);if(av.every(Number.isFinite)&&A[i]/(av.reduce((a,b)=>a+b,0)/50)<=1.15){let d=atBefore(DAY,b.t),bias=d>=50?(DAY[d].c>DE50[d]?'BUY':'SELL'):null,side=R[i-1]>=37&&R[i]<37&&bias==='BUY'?'BUY':R[i-1]<=63&&R[i]>63&&bias==='SELL'?'SELL':null,rg=b.h-b.l;if(side&&rg>0&&Math.abs(b.c-b.o)/rg>=.5){let e=M[i+1].o,sl=side==='BUY'?e-12:e+12,r=null;for(let j=i+1;j<Math.min(i+288,M.length);j++){if((side==='BUY'&&M[j].l<=sl)||(side==='SELL'&&M[j].h>=sl)){r=-1;break}if((side==='BUY'&&R[j]>=55)||(side==='SELL'&&R[j]<=45)){r=(side==='BUY'?M[j].c-e:e-M[j].c)/12;break}}if(r===null)r=(side==='BUY'?M[Math.min(i+287,M.length-1)].c-e:e-M[Math.min(i+287,M.length-1)].c)/12;push(PR,i,side,r)}}}
+// Range MR Mega N4 current BUY-only.
+if(A[i]>0){let sm=A.slice(i-50,i).filter(Number.isFinite),av=sm.length?sm.reduce((a,b)=>a+b,0)/sm.length:0,ratio=A[i]/av,slope=Math.abs(E20[i]-E20[i-6])/A[i],look=M.slice(i-30,i),hi=Math.max(...look.map(x=>x.h)),lo=Math.min(...look.map(x=>x.l)),w=hi-lo,rg=b.h-b.l,body=Math.abs(b.c-b.o)/rg,lw=(Math.min(b.o,b.c)-b.l)/rg;if(D[i]<=14&&ratio>=.55&&ratio<=1.6&&slope<=.2&&w>=A[i]*1.8&&w<=A[i]*8&&body<=.75){let edge=Math.max(A[i]*.3,w*.1),lt=look.filter(x=>x.l<=lo+edge).length,ht=look.filter(x=>x.h>=hi-edge).length;if(lt>=1&&ht>=1&&b.l<=lo+edge&&b.c>=lo+edge*.75&&lw>=.25&&R[i]<=46){let e=M[i+1].o,sd=Math.min(Math.max(A[i]*.55,e-(lo-A[i]*.12)),A[i]*1.4),td=Math.min((hi+lo)/2-e,sd*1.5),rr=td/sd;if(sd>0&&rr>=.7)push(RM,i,'BUY',exitFixed(i,'BUY',e-sd,e+td,12))}}}
+// Sweep5 current hours include 17 UTC.
+if([9,10,11,12,17].includes(hr)&&A[i]>0){let ph=Math.max(...M.slice(i-6,i).map(x=>x.h)),rg=b.h-b.l,uw=(b.h-Math.max(b.o,b.c))/rg,pm=Math.abs(M[i-1].c-M[i-3].c);if(rg>0&&b.h>=ph+A[i]*.04&&b.c<ph&&b.c<b.o&&uw>=.60&&pm>=A[i]*.5){let e=M[i+1].o;push(SW,i,'SELL',exitFixed(i,'SELL',e+5,e-5,4))}}
+// Micro Pullback exact current config.
+if(hr>=10&&hr<=19&&A[i]>0){let rg=b.h-b.l,body=Math.abs(b.c-b.o),side=E9[i]>E21[i]&&E21[i]>E50[i]&&E21[i]>E21[i-3]?'BUY':E9[i]<E21[i]&&E21[i]<E50[i]&&E21[i]<E21[i-3]?'SELL':null;if(side&&rg>0&&body/rg>=.55&&Math.abs(E9[i]-E21[i])/A[i]>=.08){let is=i-4,ie=i-2,imp=side==='BUY'?M[ie].c-M[is].o:M[is].o-M[ie].c,ph=Math.max(M[ie+1].h),pl=Math.min(M[ie+1].l),retr=side==='BUY'?(M[ie].c-pl)/imp:(ph-M[ie].c)/imp,pos=(b.c-b.l)/rg,confirm=side==='BUY'?(pos>=.62&&b.c>M[i-1].h):(pos<=.38&&b.c<M[i-1].l);if(imp>=1.2*A[i]&&retr>=.12&&retr<=.45&&confirm){let e=M[i+1].o,risk=1.1*A[i],sl=side==='BUY'?e-risk:e+risk,tp=side==='BUY'?e+risk*.7:e-risk*.7;push(MI,i,side,exitFixed(i,side,sl,tp,10))}}}
 }
-console.log('📊 LIVE STRATEGIES BACKTEST');
-console.log(`${PERIOD.from} → ${PERIOD.to} | READ ONLY\n`);
-let totalT=0,totalWins=0,totalNet=0,weightedPF=0,maxDD=0,ok=0;
-for(const x of LIVE) {
-  const f=findRunner(x);
-  if(!f){ console.log(`${x[0].padEnd(10)} | NO RUNNER`); continue; }
-  const r=run(f); const out=(r.stdout||'')+'\n'+(r.stderr||''); const n=parse(out);
-  if(r.status!==0){ console.log(`${x[0].padEnd(10)} | ERROR`); continue; }
-  if(!n){ console.log(`${x[0].padEnd(10)} | RESULT PARSE FAILED`); continue; }
-  ok++; totalT+=n.t; totalWins+=n.t*n.wr/100; totalNet+=n.net; weightedPF+=n.pf*n.t; maxDD=Math.max(maxDD,n.dd);
-  console.log(`${x[0].padEnd(10)} | T${n.t} WR${n.wr.toFixed(1)} PF${n.pf.toFixed(2)} N${n.net>=0?'+':''}${n.net.toFixed(1)}R DD${n.dd.toFixed(1)}`);
-}
-console.log('');
-if(totalT) console.log(`TOTAL      | T${totalT} WR${(100*totalWins/totalT).toFixed(1)} PF${(weightedPF/totalT).toFixed(2)} N${totalNet>=0?'+':''}${totalNet.toFixed(1)}R DDmax${maxDD.toFixed(1)}`);
-console.log(`DONE ${ok}/${LIVE.length} | LIVE UNCHANGED`);
+function st(a){let gp=0,gl=0,w=0,eq=0,pk=0,dd=0;for(const x of a){if(x.r>0){w++;gp+=x.r}else if(x.r<0)gl-=x.r;eq+=x.r;pk=Math.max(pk,eq);dd=Math.max(dd,pk-eq)}return{t:a.length,wr:a.length?100*w/a.length:0,pf:gl?gp/gl:99,n:eq,dd}}function line(n,a){let s=st(a);console.log(`${n.padEnd(10)} | T${s.t} WR${s.wr.toFixed(1)} PF${s.pf.toFixed(2)} N${s.n>=0?'+':''}${s.n.toFixed(1)}R DD${s.dd.toFixed(1)}`);return s}
+console.log('📊 CURRENT LIVE 7 — FRESH BACKTEST');console.log(`${new Date(from).toISOString().slice(0,10)} → ${new Date(to).toISOString().slice(0,10)} | READ ONLY`);let all=[];for(const [n,a] of [['EXHAUSTION',EX],['RAPID',RA],['GROK92',GR],['PRO',PR],['RANGE',RM],['SWEEP5',SW],['MICRO',MI]]){line(n,a);all.push(...a)}line('TOTAL',all);console.log('DONE 7/7 | LIVE UNCHANGED');
