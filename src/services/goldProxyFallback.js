@@ -1,9 +1,7 @@
 const axios = require('axios');
 
 const BINANCE_BASE = process.env.BINANCE_MARKET_DATA_BASE || 'https://data-api.binance.vision';
-const GOLD_API_URL = 'https://api.gold-api.com/price/XAU';
 const TIMEOUT = Number(process.env.MARKET_PROVIDER_TIMEOUT_MS) || 10000;
-const MAX_DEVIATION_PCT = Number(process.env.GOLD_PROXY_MAX_DEVIATION_PCT) || 1.0;
 
 function mapInterval(tf) {
   return ({
@@ -16,7 +14,6 @@ function mapInterval(tf) {
 }
 
 function proxyLimit(tf) {
-  // H1 needs enough history for Grok EMA200/ADX and GOLD H4 aggregation.
   if (String(tf) === '1h') return 500;
   return 120;
 }
@@ -24,19 +21,6 @@ function proxyLimit(tf) {
 function outputLimit(tf) {
   if (String(tf) === '1h') return 420;
   return 100;
-}
-
-async function getGoldApiPrice() {
-  const { data } = await axios.get(GOLD_API_URL, {
-    timeout: TIMEOUT,
-    headers: { 'User-Agent': 'ForexAIBot/1.0' }
-  });
-
-  const price = Number(data?.price ?? data?.ask ?? data?.bid);
-  if (!Number.isFinite(price) || price <= 0) {
-    throw new Error('Invalid GoldAPI XAU price');
-  }
-  return price;
 }
 
 async function fetchProxy(symbol, tf) {
@@ -66,40 +50,41 @@ async function fetchProxy(symbol, tf) {
   );
 }
 
-async function calibratedProxy(symbol, tf) {
-  const [candles, goldPrice] = await Promise.all([
-    fetchProxy(symbol, tf),
-    getGoldApiPrice()
-  ]);
+async function getGoldProxyPrice() {
+  let lastError = null;
 
+  for (const symbol of ['PAXGUSDT', 'XAUTUSDT']) {
+    try {
+      const { data } = await axios.get(`${BINANCE_BASE}/api/v3/ticker/price`, {
+        params: { symbol },
+        timeout: Math.min(TIMEOUT, 4000)
+      });
+      const price = Number(data?.price);
+      if (!Number.isFinite(price) || price <= 0) {
+        throw new Error(`Invalid ${symbol} live proxy price`);
+      }
+      console.log(`⚡ GOLD LIVE PROXY ${symbol}=${price}`);
+      return { price, symbol, time: Date.now() };
+    } catch (error) {
+      lastError = error;
+      console.log(`⚠️ GOLD LIVE PROXY ${symbol} failed: ${error.response?.status || error.message}`);
+    }
+  }
+
+  throw lastError || new Error('All Binance gold live proxy sources failed');
+}
+
+async function proxyCandles(symbol, tf) {
+  const candles = await fetchProxy(symbol, tf);
   const last = candles.at(-1);
   const proxyPrice = Number(last?.close);
   if (!Number.isFinite(proxyPrice) || proxyPrice <= 0) {
     throw new Error(`Invalid ${symbol} proxy close`);
   }
 
-  const deviationPct = Math.abs((proxyPrice - goldPrice) / goldPrice) * 100;
-  if (deviationPct > MAX_DEVIATION_PCT) {
-    throw new Error(`${symbol} deviation too high: ${deviationPct.toFixed(4)}% > ${MAX_DEVIATION_PCT}%`);
-  }
-
-  const ratio = goldPrice / proxyPrice;
-  const out = candles.map(c => ({
-    timestamp: c.timestamp,
-    open: c.open * ratio,
-    high: c.high * ratio,
-    low: c.low * ratio,
-    close: c.close * ratio,
-    volume: c.volume
-  }));
-
-  const ageMin = Math.max(0, Math.round((Date.now() - Number(out.at(-1)?.timestamp || 0)) / 60000));
-
-  console.log(
-    `🪙 GOLD PROXY OK ${symbol} ${tf} | bars=${out.length} | age=${ageMin}m | dev=${deviationPct.toFixed(4)}% | calibration=${ratio.toFixed(6)}`
-  );
-
-  return out.slice(-outputLimit(tf));
+  const ageMin = Math.max(0, Math.round((Date.now() - Number(last?.timestamp || 0)) / 60000));
+  console.log(`🪙 GOLD PROXY OK ${symbol} ${tf} | bars=${candles.length} | age=${ageMin}m | direct Binance proxy`);
+  return candles.slice(-outputLimit(tf));
 }
 
 async function getGoldProxyCandles(tf) {
@@ -108,7 +93,7 @@ async function getGoldProxyCandles(tf) {
   for (const symbol of ['PAXGUSDT', 'XAUTUSDT']) {
     try {
       console.log(`🪙 GOLD PROXY TRY ${symbol}: XAUUSD ${tf}`);
-      return await calibratedProxy(symbol, tf);
+      return await proxyCandles(symbol, tf);
     } catch (error) {
       lastError = error;
       console.log(`⚠️ GOLD PROXY ${symbol} failed ${tf}: ${error.response?.status || error.message}`);
@@ -118,4 +103,4 @@ async function getGoldProxyCandles(tf) {
   throw lastError || new Error(`All gold proxy sources failed ${tf}`);
 }
 
-module.exports = { getGoldProxyCandles };
+module.exports = { getGoldProxyCandles, getGoldProxyPrice };
