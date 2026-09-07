@@ -23,6 +23,7 @@ let lastTwelveGoldAt = 0;
 const TIMEOUT = Number(process.env.MARKET_PROVIDER_TIMEOUT_MS) || 10000;
 const SIFTING_GAP_MS = Number(process.env.SIFTING_GLOBAL_GAP_MS) || 2500;
 const SIFTING_429_COOLDOWN_MS = Number(process.env.SIFTING_429_COOLDOWN_MS) || 60 * 1000;
+const LIVE_PRICE_CACHE_MS = Number(process.env.MARKET_LIVE_PRICE_CACHE_MS) || 1500;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -278,16 +279,37 @@ if (!marketService.__finalMarketPriorityInstalled) {
 
     const key = 'FINAL:XAUUSD:price';
     const item = cache.get(key);
-    if (item && Date.now() - item.time <= 30000) return item.value;
+    const ageMs = item ? Date.now() - item.time : Infinity;
 
-    const price = await firstSuccess('XAUUSD price', [
-      ['GoldAPI', goldPriceGoldApi],
-      ['SiftingIO', goldPriceSifting],
-      ['Massive', () => getMassiveGoldPrice(), isMassiveConfigured()]
-    ]);
+    if (item && ageMs <= LIVE_PRICE_CACHE_MS) {
+      console.log(`💰 XAU live cache hit | age=${ageMs}ms`);
+      return item.value;
+    }
 
-    cache.set(key, { value: price, time: Date.now() });
-    return price;
+    if (inFlight.has(key)) {
+      console.log('⏳ XAU shared live-price request');
+      return inFlight.get(key);
+    }
+
+    const requestStartedAt = Date.now();
+    const request = (async () => {
+      const price = await firstSuccess('XAUUSD LIVE price', [
+        ['SiftingIO', goldPriceSifting],
+        ['GoldAPI', goldPriceGoldApi],
+        ['Massive', () => getMassiveGoldPrice(), isMassiveConfigured()]
+      ]);
+
+      cache.set(key, { value: price, time: Date.now() });
+      console.log(`⚡ XAU LIVE ${price} | fetch=${Date.now() - requestStartedAt}ms`);
+      return price;
+    })();
+
+    inFlight.set(key, request);
+    try {
+      return await request;
+    } finally {
+      inFlight.delete(key);
+    }
   };
 
   Object.defineProperty(marketService, '__finalMarketPriorityInstalled', {
@@ -298,7 +320,7 @@ if (!marketService.__finalMarketPriorityInstalled) {
 
   console.log('🎯 FINAL MARKET PRIORITY READY');
   console.log('🥇 XAU candles: PAXG/XAUT Proxy → SiftingIO → TwelveData → Dukascopy → Massive');
-  console.log('🥇 XAU price: GoldAPI → SiftingIO → Massive');
+  console.log('⚡ XAU live price: SiftingIO → GoldAPI → Massive | cache=' + LIVE_PRICE_CACHE_MS + 'ms');
   console.log('🥇 FX candles: SiftingIO → TwelveData → Dukascopy');
   console.log(`🧵 Sifting global queue: ${SIFTING_GAP_MS}ms | 429 cooldown=${Math.round(SIFTING_429_COOLDOWN_MS/1000)}s`);
   console.log('🚫 FX legacy candle fallthrough disabled: no AlphaVantage/Yahoo in this route');
