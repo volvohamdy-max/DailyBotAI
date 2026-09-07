@@ -5,7 +5,7 @@ const { addTrade, getOpenTrades } = require('../database/trades');
 const config = require('../config');
 
 const SOURCE_PREFIX = 'VIP_HOURLY_MARKET_BIAS';
-const MIN_SCORE = 80;
+const MIN_SCORE = 90;
 const MAX_SL_DISTANCE = 7;
 const MAX_TP_DISTANCE = 9;
 
