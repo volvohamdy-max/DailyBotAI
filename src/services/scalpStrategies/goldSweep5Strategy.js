@@ -11,7 +11,7 @@ const CONFIG = {
   sweepAtr: 0.04,
   upperWickMin: 0.60,
   priorMoveAtr: 0.50,
-  sessionUTC: [9, 13],
+  hoursUTC: [9, 10, 11, 12, 17],
   tpUsd: 5,
   slUsd: 5,
   maxBars: 4
@@ -34,7 +34,7 @@ async function scan() {
   const i = c.length - 1;
   const bar = c[i];
   const hourUTC = new Date(bar.timestamp).getUTCHours();
-  if (hourUTC < CONFIG.sessionUTC[0] || hourUTC >= CONFIG.sessionUTC[1]) return wait('SWEEP5_OUTSIDE_SESSION', { hourUTC });
+  if (!CONFIG.hoursUTC.includes(hourUTC)) return wait('SWEEP5_OUTSIDE_SESSION', { hourUTC });
 
   const A = atrSeries(c, 14), atr5 = A[i];
   if (!(atr5 > 0)) return wait('SWEEP5_ATR_NOT_READY');
@@ -84,7 +84,7 @@ async function scan() {
     upperWick,
     priorMove,
     maxBars:CONFIG.maxBars,
-    reasons:['SELL only','LB6 high sweep >= 0.04 ATR','Bearish reclaim below prior high','Upper wick >= 60%','Prior move >= 0.5 ATR','UTC 09:00-13:00','Fixed $5 TP / $5 SL'] ,
+    reasons:['SELL only','LB6 high sweep >= 0.04 ATR','Bearish reclaim below prior high','Upper wick >= 60%','Prior move >= 0.5 ATR','UTC hours 09,10,11,12,17','Fixed $5 TP / $5 SL'] ,
     markSent:()=>{STATE.lastSignalBar=signalBar;}
   };
 }
