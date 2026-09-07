@@ -1,10 +1,15 @@
 'use strict';
 // CURRENT LIVE 7 chronological portfolio — READ ONLY.
 // Reuses the fresh verified 7-strategy engine and adds true time-ordered portfolio DD.
-const fs=require('fs'),path=require('path'),vm=require('vm');
+const fs=require('fs'),path=require('path'),vm=require('vm'),Module=require('module');
 const p=path.join(__dirname,'backtest-all-live-gold-strategies.js');
 let src=fs.readFileSync(p,'utf8');
 const marker="console.log('📊 CURRENT LIVE 7";
 const k=src.indexOf(marker);if(k<0)throw Error('Current-live report hook not found');
 const extra=`\n(function(){\n const sets=[['EXHAUSTION',EX],['RAPID',RA],['GROK92',GR],['PRO',PR],['RANGE',RM],['SWEEP5',SW],['MICRO',MI]];\n let all=[];for(const [name,a] of sets)for(const x of a)all.push({...x,name,t:M[x.i].t});all.sort((a,b)=>a.t-b.t||a.name.localeCompare(b.name));\n let w=0,gp=0,gl=0,eq=0,pk=0,dd=0,pkT=0,ddA=0,ddB=0;const days=new Map();\n for(const x of all){if(x.r>0){w++;gp+=x.r}else if(x.r<0)gl-=x.r;eq+=x.r;if(eq>pk){pk=eq;pkT=x.t}if(pk-eq>dd){dd=pk-eq;ddA=pkT;ddB=x.t}const d=new Date(x.t).toISOString().slice(0,10);days.set(d,(days.get(d)||0)+x.r)}\n let wd=0,ld=0;for(const v of days.values()){if(v>0)wd++;else if(v<0)ld++}const pf=gl?gp/gl:99,wr=all.length?100*w/all.length:0,fd=t=>t?new Date(t).toISOString().slice(0,10):'-';\n console.log('\\n💼 CURRENT LIVE 7 — TRUE CHRONOLOGICAL PORTFOLIO');\n console.log('TOTAL | T'+all.length+' WR'+wr.toFixed(1)+' PF'+pf.toFixed(2)+' N'+(eq>=0?'+':'')+eq.toFixed(1)+'R DD'+dd.toFixed(1));\n console.log('DAYS  | '+days.size+' total | '+wd+' win | '+ld+' loss | WinDays '+(days.size?100*wd/days.size:0).toFixed(1)+'%');\n console.log('DD    | '+fd(ddA)+' -> '+fd(ddB));\n console.log('\\nCONTRIBUTION');for(const [name,a] of sets){const s=st(a);console.log(name.padEnd(10)+' | T'+s.t+' WR'+s.wr.toFixed(1)+' PF'+s.pf.toFixed(2)+' N'+(s.n>=0?'+':'')+s.n.toFixed(1)+'R DD'+s.dd.toFixed(1))}\n console.log('\\n🛡️ READ ONLY — LIVE UNCHANGED\\n');\n})();\n`;
-src=src.slice(0,k)+extra+src.slice(k);vm.runInThisContext(src,{filename:p});
+src=src.slice(0,k)+extra+src.slice(k);
+// runInThisContext has no CommonJS wrapper; provide a module-local require explicitly.
+const localRequire=Module.createRequire(p);
+const wrapped=`(function(require,module,exports,__filename,__dirname){${src}\n})`;
+const fn=vm.runInThisContext(wrapped,{filename:p});
+const mod={exports:{}};fn(localRequire,mod,mod.exports,p,path.dirname(p));
