@@ -1,7 +1,7 @@
 'use strict';
 const {getGoldCandlesResilient}=require('../goldCandleRecovery');
 const {getPrice}=require('../marketService');
-const CONFIG={id:'GOLD_MICRO_PULLBACK',label:'⚡ Gold Micro Pullback',pair:'XAUUSD',fast:9,slow:21,trend:50,impulseBars:2,impulseAtr:1.2,pullbackBars:2,pullbackMin:.12,pullbackMax:.45,bodyMin:.55,closePos:.62,sepAtr:.08,slAtr:1.1,rr:.7,maxBars:10,cooldown:1,h0:10,h1:19};
+const CONFIG={id:'GOLD_MICRO_PULLBACK',label:'⚡ Gold Micro Pullback',pair:'XAUUSD',fast:9,slow:21,trend:50,impulseBars:2,impulseAtr:1.2,pullbackBars:2,pullbackMin:.12,pullbackMax:.45,bodyMin:.55,closePos:.62,sepAtr:.08,slAtr:1.1,rr:.7,maxBars:10,cooldown:1,h0:0,h1:23};
 const STATE={lastSignalBar:null};
 const finite=v=>{const n=Number(v);return Number.isFinite(n)?n:null};
 function closed(r){return Array.isArray(r)&&r.length>1?r.slice(0,-1):[]}
