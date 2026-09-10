@@ -1,13 +1,13 @@
 const axios = require('axios');
 const marketService = require('./marketService');
+const config = require('../config');
 
-// Keep the existing installer path so startup wiring stays unchanged.
-// XAUUSD live/execution policy:
-// 1) SiftingIO quote = PRIMARY
-// 2) existing marketService route = FALLBACK (includes GoldAPI and other configured providers)
+// Temporary live-price provider test for XAUUSD:
+// 1) TwelveData XAU/USD = PRIMARY
+// 2) existing marketService route = FALLBACK
 // Strategy conditions and candle logic are unchanged.
-const CACHE_MS = Number(process.env.SIFTING_LIVE_CACHE_MS) || 1200;
-const TIMEOUT_MS = Number(process.env.SIFTING_LIVE_TIMEOUT_MS) || 7000;
+const CACHE_MS = Number(process.env.TWELVE_XAU_LIVE_CACHE_MS) || 1200;
+const TIMEOUT_MS = Number(process.env.TWELVE_XAU_LIVE_TIMEOUT_MS) || 7000;
 let cache = null;
 let inFlight = null;
 
@@ -16,30 +16,24 @@ function positive(value) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-async function getSiftingPrice() {
-  const key = process.env.SIFTING_API_KEY || '';
-  if (!key) throw new Error('SIFTING_API_KEY not configured');
+async function getTwelvePrice() {
+  const key = config.twelveDataKey || process.env.TWELVE_DATA_API_KEY || process.env.TWELVEDATA_API_KEY || '';
+  if (!key) throw new Error('TwelveData API key not configured');
 
-  const { data } = await axios.get(
-    'https://api.sifting.io/v1/last/quote/commodities/XAUUSD',
-    {
-      timeout: TIMEOUT_MS,
-      headers: { 'X-API-Key': key }
-    }
-  );
+  const { data } = await axios.get('https://api.twelvedata.com/price', {
+    params: { symbol: 'XAU/USD', apikey: key },
+    timeout: TIMEOUT_MS
+  });
 
-  const bid = positive(data?.b);
-  const ask = positive(data?.a);
-  const price = bid != null && ask != null ? (bid + ask) / 2 : (bid ?? ask);
-  if (price == null) throw new Error(data?.message || 'Invalid SiftingIO XAUUSD quote');
-
-  return { price, bid, ask, time: Date.now(), source: 'SiftingIO' };
+  const price = positive(data?.price);
+  if (price == null) throw new Error(data?.message || data?.status || 'Invalid TwelveData XAU/USD price');
+  return { price, time: Date.now(), source: 'TwelveData' };
 }
 
-if (!marketService.__siftingLivePriceInstalled) {
+if (!marketService.__twelveXauLivePriceInstalled) {
   const previousGetPrice = marketService.getPrice.bind(marketService);
 
-  marketService.getPrice = async function siftingLivePrice(pair) {
+  marketService.getPrice = async function twelveXauLivePrice(pair) {
     const symbol = String(pair || '').trim().toUpperCase();
     if (symbol !== 'XAUUSD') return previousGetPrice(symbol);
 
@@ -49,16 +43,16 @@ if (!marketService.__siftingLivePriceInstalled) {
 
     inFlight = (async () => {
       try {
-        const quote = await getSiftingPrice();
+        const quote = await getTwelvePrice();
         cache = quote;
-        console.log(`🥇 XAU PRICE SiftingIO | bid=${quote.bid ?? '-'} | ask=${quote.ask ?? '-'} | mid=${quote.price} | cache=${CACHE_MS}ms`);
+        console.log(`🥇 XAU PRICE TwelveData | price=${quote.price} | cache=${CACHE_MS}ms`);
         return quote.price;
       } catch (error) {
         if (cache && now - cache.time <= 15000) {
-          console.log(`⚠️ SiftingIO temporary failure; using ${now - cache.time}ms cached SiftingIO price`);
+          console.log(`⚠️ TwelveData temporary failure; using ${now - cache.time}ms cached TwelveData price`);
           return cache.price;
         }
-        console.log(`⚠️ SiftingIO live price failed; using market fallback | ${error.response?.status || error.message}`);
+        console.log(`⚠️ TwelveData XAU live price failed; using market fallback | ${error.response?.status || error.message}`);
         return previousGetPrice(symbol);
       }
     })();
@@ -67,13 +61,13 @@ if (!marketService.__siftingLivePriceInstalled) {
     finally { inFlight = null; }
   };
 
-  Object.defineProperty(marketService, '__siftingLivePriceInstalled', {
+  Object.defineProperty(marketService, '__twelveXauLivePriceInstalled', {
     value: true,
     enumerable: false,
     configurable: false
   });
 
-  console.log(`🥇 XAU LIVE PRICE OVERRIDE: SiftingIO PRIMARY | cache=${CACHE_MS}ms | existing market route=fallback`);
+  console.log(`🥇 XAU LIVE PRICE OVERRIDE: TwelveData PRIMARY | cache=${CACHE_MS}ms | existing market route=fallback`);
 }
 
 module.exports = marketService;
