@@ -6,7 +6,7 @@ const { getPrice } = require('../marketService');
 // Validated Exhaustion E2 WR candidate. Exit lab: ATR exits with $2 minimum floors.
 const CONFIG = {
   id: 'GOLD_EXHAUSTION_V3', label: '🔥 Gold Exhaustion V3', pair: 'XAUUSD',
-  hoursUTC: [4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20],
+  hoursUTC: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23],
   buy: { burstBars:3, burstATR:2.2, wick:0.30, retrace:0.15, tpATR:0.6, slATR:1.25, minSL:2.0, minTP:2.0, maxBars:3 },
   sell:{ burstBars:3, burstATR:2.6, wick:0.25, retrace:0.15, tpATR:0.6, slATR:1.25, minSL:2.0, minTP:2.0, maxBars:3 }
 };
