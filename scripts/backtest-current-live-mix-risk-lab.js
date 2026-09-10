@@ -1,0 +1,19 @@
+'use strict';
+// READ-ONLY risk/compounding lab for CURRENT LIVE 7-strategy mix.
+// Does not import or modify live runtime. Uses the same exact event streams/window as the portfolio lab.
+const fs=require('fs'),path=require('path'),vm=require('vm');
+const START=Date.parse('2025-09-10T00:00:00.000Z'),END=Date.parse('2026-09-10T23:59:59.999Z');
+const START_BAL=Number(process.env.START_BALANCE||1000);
+const RISKS=[0.25,0.5,1,1.5,2];
+function runLab(file,exportCode){const p=path.join(__dirname,file);let src=fs.readFileSync(p,'utf8')+`\n${exportCode}\n`;const s={require,console:{log:()=>{},error:()=>{}},process,__dirname,path,Buffer,setTimeout,clearTimeout,globalThis:null};s.globalThis=s;vm.createContext(s);vm.runInContext(src,s,{filename:p});return s.__EVENT_EXPORT;}
+const h=runLab('backtest-live-hours-24h-lab.js',';globalThis.__EVENT_EXPORT={M,all,cur};');
+const g=runLab('backtest-all-live-gold-strategies.js',';globalThis.__EVENT_EXPORT={M,GR,RM};');
+function ev(M,strategy,x){return{strategy,t:M[x.i]?.t,i:x.i,r:x.r};}
+let events=[];for(const n of ['EXHAUSTION','RAPID','PRO','MICRO'])events.push(...h.all[n].map(x=>ev(h.M,n,x)));events.push(...h.cur.SWEEP5.map(x=>ev(h.M,'SWEEP5',x)));events.push(...g.GR.map(x=>ev(g.M,'GROK92',x)),...g.RM.map(x=>ev(g.M,'RANGE_MR',x)));
+events=events.filter(e=>Number.isFinite(e.t)&&Number.isFinite(e.r)&&e.t>=START&&e.t<=END).sort((a,b)=>a.t-b.t||a.i-b.i||a.strategy.localeCompare(b.strategy));
+function simulate(riskPct){let bal=START_BAL,peak=bal,maxDDPct=0,maxDDMoney=0,maxDDStart=null,maxDDEnd=null,peakT=null,minBal=bal,maxLossStreak=0,lossStreak=0;const monthly=new Map();for(const e of events){const before=bal;bal*=1+(riskPct/100)*e.r;if(bal<0)bal=0;if(e.r<0){lossStreak++;maxLossStreak=Math.max(maxLossStreak,lossStreak)}else if(e.r>0)lossStreak=0;if(bal>peak){peak=bal;peakT=e.t}else{const ddMoney=peak-bal,ddPct=peak?100*ddMoney/peak:100;if(ddPct>maxDDPct){maxDDPct=ddPct;maxDDMoney=ddMoney;maxDDStart=peakT;maxDDEnd=e.t}}minBal=Math.min(minBal,bal);const m=new Date(e.t).toISOString().slice(0,7);monthly.set(m,bal-before+(monthly.get(m)||0));}return{riskPct,bal,ret:100*(bal/START_BAL-1),maxDDPct,maxDDMoney,maxDDStart,maxDDEnd,minBal,maxLossStreak,monthly};}
+console.log('\n💰 CURRENT LIVE MIX — RISK / COMPOUNDING LAB (READ ONLY)');console.log(`Window       : 2025-09-10 -> 2026-09-10 UTC`);console.log(`Events       : ${events.length}`);console.log(`Start balance: $${START_BAL.toFixed(2)}`);console.log('Risk model   : fixed % of current equity per 1R, compounded trade-by-trade');console.log('NOTE         : event timestamps are research event timestamps; this is equity-risk simulation, not broker margin/slippage modeling.\n');
+console.log('RISK   FINAL BALANCE      RETURN       MAX DD       DD $          MAX LOSS STREAK');console.log('──────────────────────────────────────────────────────────────────────────────');
+const sims=RISKS.map(simulate);for(const s of sims)console.log(`${String(s.riskPct.toFixed(2)+'%').padEnd(7)}$${s.bal.toFixed(2).padStart(13)}   ${String(s.ret.toFixed(1)+'%').padStart(10)}   ${String(s.maxDDPct.toFixed(1)+'%').padStart(9)}   $${s.maxDDMoney.toFixed(2).padStart(10)}   ${String(s.maxLossStreak).padStart(5)}`);
+console.log('\nDRAWDOWN WINDOWS');for(const s of sims)console.log(`${s.riskPct.toFixed(2)}% risk : ${s.maxDDStart?new Date(s.maxDDStart).toISOString():'n/a'} -> ${s.maxDDEnd?new Date(s.maxDDEnd).toISOString():'n/a'}`);
+console.log('\nINTERPRETATION GUARD');console.log('- Compounding uses each trade R sequentially against then-current equity.');console.log('- It does NOT claim exact simultaneous-position margin exposure because these research events do not carry reliable entry+exit intervals for every strategy.');console.log('- No live files/settings/strategies were changed.');console.log('\n🛡️ READ ONLY — LIVE STRATEGIES UNCHANGED\n');
