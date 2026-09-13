@@ -1,0 +1,24 @@
+'use strict';
+// RESEARCH ONLY — Rapid lab using the SAME historical logic as the portfolio backtest.
+const fs=require('fs'),path=require('path'),N=Number;
+function load(){for(const f of ['xauusd-m5-dukascopy.json','xauusd-m5.json']){const p=path.join(__dirname,'../data',f);if(fs.existsSync(p)){const x=JSON.parse(fs.readFileSync(p));return Array.isArray(x)?x:x.candles||x.data||x.values||[]}}throw Error('Missing M5 candles')}
+let M=load().map(x=>({t:N(x.timestamp??x.time??x.date),o:N(x.open??x.o),h:N(x.high??x.h),l:N(x.low??x.l),c:N(x.close??x.c),v:N(x.volume??x.v??0)})).filter(x=>[x.t,x.o,x.h,x.l,x.c].every(Number.isFinite)).sort((a,b)=>a.t-b.t);if(M[0]?.t<1e12)M.forEach(x=>x.t*=1000);const FROM=Date.parse('2025-08-24T00:00:00Z'),TO=Date.parse('2026-08-24T23:59:59Z');M=M.filter(x=>x.t>=FROM-100*864e5&&x.t<=TO);const first=M.findIndex(x=>x.t>=FROM);
+function ema(v,p){let a=Array(v.length).fill(NaN),e=v[0],k=2/(p+1);for(let i=0;i<v.length;i++){if(i)e=v[i]*k+e*(1-k);if(i>=p-1)a[i]=e}return a}function atr(r,p=14){let a=Array(r.length).fill(NaN);for(let i=p;i<r.length;i++){let s=0;for(let j=i-p+1;j<=i;j++){let pc=r[j-1].c;s+=Math.max(r[j].h-r[j].l,Math.abs(r[j].h-pc),Math.abs(r[j].l-pc))}a[i]=s/p}return a}function agg(rows,ms){let a=[],z;for(const b of rows){let t=Math.floor(b.t/ms)*ms;if(!z||z.t!==t){z={t,o:b.o,h:b.h,l:b.l,c:b.c,v:b.v};a.push(z)}else{z.h=Math.max(z.h,b.h);z.l=Math.min(z.l,b.l);z.c=b.c;z.v+=b.v}}return a}function atBefore(A,t){let lo=0,hi=A.length-1,z=-1;while(lo<=hi){let q=(lo+hi)>>1;if(A[q].t<t){z=q;lo=q+1}else hi=q-1}return z}function ex(i,side,sl,tp,max){let e=M[i+1]?.o;if(!Number.isFinite(e))return null;for(let j=i+1;j<=Math.min(i+max,M.length-1);j++){let s=side==='BUY'?M[j].l<=sl:M[j].h>=sl,t=side==='BUY'?M[j].h>=tp:M[j].l<=tp;if(s)return -1;if(t)return 1}let q=M[Math.min(i+max,M.length-1)].c;return(side==='BUY'?q-e:e-q)/Math.abs(e-sl)}
+const C=M.map(x=>x.c),A=atr(M),E20=ema(C,20),H=agg(M,3600000),HC=H.map(x=>x.c),H20=ema(HC,20),H50=ema(HC,50),HA=atr(H);
+const BASE_H=[0,4,11,12,13,14,15,17];let raw=[];for(let i=Math.max(first,250);i<M.length-30&&M[i].t<=TO;i++){let b=M[i],hr=new Date(b.t).getUTCHours();if(!BASE_H.includes(hr)||!(A[i]>0))continue;let h=atBefore(H,b.t),sep=h>=2?Math.abs(H20[h]-H50[h])/HA[h]:0,bull=h>=2&&HC[h]>H20[h]&&H20[h]>H50[h]&&H20[h]>H20[h-2],bear=h>=2&&HC[h]<H20[h]&&H20[h]<H50[h]&&H20[h]<H20[h-2],hi=Math.max(M[i-3].h,M[i-2].h,M[i-1].h),lo=Math.min(M[i-3].l,M[i-2].l,M[i-1].l),rg=b.h-b.l,body=Math.abs(b.c-b.o),pos=(b.c-b.l)/rg,side=bull&&b.c>hi&&pos>=.72&&b.c>E20[i]?'BUY':bear&&b.c<lo&&pos<=.28&&b.c<E20[i]?'SELL':null;if(side&&sep>=.08&&body/A[i]>=.65&&rg/A[i]<=2&&Math.abs(b.c-E20[i])/A[i]<=1.5){let e=M[i+1].o,swing=side==='BUY'?Math.min(b.l,M[i-1].l):Math.max(b.h,M[i-1].h),risk=Math.max(A[i]*.65,Math.abs(e-swing));if(risk<=A[i]*1.35){let sl=side==='BUY'?e-risk:e+risk,tp=side==='BUY'?e+risk:e-risk,r=ex(i,side,sl,tp,8);if(Number.isFinite(r))raw.push({t:b.t,hr,side,r,sep,body:body/A[i],dist:Math.abs(b.c-E20[i])/A[i]})}}}
+function st(a){let gp=0,gl=0,w=0,eq=0,pk=0,dd=0;for(const x of a){if(x.r>0){w++;gp+=x.r}else if(x.r<0)gl-=x.r;eq+=x.r;pk=Math.max(pk,eq);dd=Math.max(dd,pk-eq)}return{t:a.length,wr:a.length?100*w/a.length:0,pf:gl?gp/gl:99,n:eq,dd}}function f(a){let s=st(a);return`T${s.t} WR${s.wr.toFixed(1)} PF${s.pf.toFixed(2)} N${s.n>=0?'+':''}${s.n.toFixed(1)}R DD${s.dd.toFixed(1)}R`}function win(a,d){let x=TO-(d-1)*864e5;return a.filter(z=>z.t>=x)}
+const variants=[
+ ['BASE',x=>true],
+ ['NO12',x=>x.hr!==12],
+ ['NO00',x=>x.hr!==0],
+ ['NO12_00',x=>x.hr!==12&&x.hr!==0],
+ ['SEP10',x=>x.sep>=.10],
+ ['SEP12',x=>x.sep>=.12],
+ ['BODY70',x=>x.body>=.70],
+ ['BODY75',x=>x.body>=.75],
+ ['NO12_SEP10',x=>x.hr!==12&&x.sep>=.10],
+ ['BUY_ONLY',x=>x.side==='BUY'],
+ ['SELL_ONLY',x=>x.side==='SELL']
+];
+console.log('🧪 RAPID V5 — PORTFOLIO-ALIGNED LAB | READ ONLY');console.log('Baseline hours: '+BASE_H.join(',')+' UTC');for(const [n,fn] of variants){let a=raw.filter(fn);console.log(`\n${n.padEnd(11)} 1Y ${f(a)}`);console.log(`            180D ${f(win(a,180))}`);console.log(`             90D ${f(win(a,90))}`);console.log(`             60D ${f(win(a,60))}`);console.log(`             30D ${f(win(a,30))}`)}
+console.log('\nBASE BY HOUR');for(const h of BASE_H){let a=raw.filter(x=>x.hr===h);console.log(String(h).padStart(2,'0')+'h '+f(a))}console.log('\nBASE BY SIDE');console.log('BUY  '+f(raw.filter(x=>x.side==='BUY')));console.log('SELL '+f(raw.filter(x=>x.side==='SELL')));console.log('\nDONE — LIVE UNCHANGED');
