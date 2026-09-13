@@ -1,5 +1,5 @@
 'use strict';
-// RESEARCH ONLY — runs the already-validated updated portfolio over rolling windows.
+// RESEARCH ONLY — runs the latest updated portfolio over rolling windows.
 // No live strategy files are imported or modified.
 const {spawnSync}=require('child_process');
 const path=require('path');
@@ -10,7 +10,7 @@ if(!Number.isFinite(endMs))throw new Error('Bad PORTFOLIO_END');
 const DAY=86400000;
 const windows=[['1Y',365],['180D',180],['90D',90],['60D',60],['30D',30]];
 console.log('📊 UPDATED PORTFOLIO — ROLLING WINDOWS');
-console.log('Pro19/no08BUY | Micro BUY-only 2ATR/2ATR | Exhaustion E3');
+console.log('Pro19/no08BUY | Micro BUY-only 2ATR/2ATR | Exhaustion E3 | Rapid R1 23h/no20UTC');
 console.log('END '+new Date(endMs).toISOString());
 for(const [name,days] of windows){
  const from=new Date(endMs-(days-1)*DAY);from.setUTCHours(0,0,0,0);
