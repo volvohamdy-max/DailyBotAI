@@ -1,16 +1,12 @@
 'use strict';
-/* Execution-cost stress test for final fixed 0.01-lot portfolio.
-   Reuses the final fixed-lot reconstruction and captures its trades.
-   Cost scenarios are ROUND-TRIP all-in cost per completed trade in USD at 0.01 lot.
-   This intentionally stress-tests net P/L without changing signal generation.
-*/
+/* Execution-cost stress test for final fixed 0.01-lot portfolio. */
 const fs=require('fs'),vm=require('vm');
 const SRC='scripts/fixed-lot-001-backtest-20260916.js';
 if(!fs.existsSync(SRC)){console.error('❌ Missing '+SRC);process.exit(1)}
 let s=fs.readFileSync(SRC,'utf8');
 const anchor="console.log('\\nNOTE: historical candle execution only. Spread/commission/swap and live GoldAPI entry-gap/slippage are NOT included.');";
 if(!s.includes(anchor)){console.error('❌ Capture anchor missing');process.exit(2)}
-s=s.replace(anchor,"globalThis.__COST_CAPTURE={all,LOT,CONTRACT,OZ};\\n"+anchor);
+s=s.replace(anchor,"globalThis.__COST_CAPTURE={all,LOT,CONTRACT,OZ};\n"+anchor);
 const quiet={log(){},error:console.error,warn:console.warn};
 const ctx={require,console:quiet,process,__dirname,__filename:SRC,Buffer,setTimeout,clearTimeout};
 vm.runInNewContext(s,ctx,{filename:SRC});
@@ -25,12 +21,12 @@ console.log('Trades='+raw.length+' | 0.01 lot | $1 gold move = $1 gross P/L');
 console.log('Each COST below = total round-trip drag PER TRADE (spread + slippage + commission equivalent).');
 console.log('\nCOST / TRADE | TOTAL COST | NET | PF | WR(after cost) | MAX DD | LS');
 for(const c of scenarios){const x=stats(c);console.log('$'+f(c)+' | '+money(c*raw.length)+' | '+money(x.net)+' | '+f(x.pf)+' | '+f(x.wr)+'% | '+money(x.dd)+' | '+x.maxLs)}
-const grossAvg=base.net/raw.length,breakEven=grossAvg;
+const grossAvg=base.net/raw.length;
 console.log('\nBREAK-EVEN EXECUTION DRAG');
 console.log('Gross expectancy per trade = '+money(grossAvg));
-console.log('Approx break-even all-in cost/trade = '+money(breakEven));
+console.log('Approx break-even all-in cost/trade = '+money(grossAvg));
 console.log('If real average round-trip execution drag approaches this number, historical net edge is consumed.');
 console.log('\nMONTHLY STRESS @ $0.60 / TRADE');
 const by={};for(const t of raw)(by[month(t.time)]??=[]).push(t);
 for(const m of Object.keys(by).sort()){const a=by[m];let net=0,gp=0,gl=0,w=0;for(const t of a){const p=t.usd-.60;net+=p;if(p>0){gp+=p;w++}else if(p<0)gl+=-p}console.log(m+' | T'+a.length+' | NET '+money(net)+' | PF '+f(gl?gp/gl:Infinity)+' | WR '+f(100*w/a.length)+'%')}
-console.log('\nIMPORTANT: This is a sensitivity test, not a claim that your broker cost equals any scenario. It also does not recreate time-varying spread, gap, latency, swap, or GoldAPI-vs-broker price differences trade by trade.');
+console.log('\nIMPORTANT: sensitivity test only; real spread/slippage/commission can vary by trade.');
