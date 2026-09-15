@@ -4,8 +4,8 @@ const { getGoldCandlesResilient } = require('../goldCandleRecovery');
 const CONFIG = {
   id: 'GROK_GOLD_92', label: '⚡ Grok Gold 92', pair: 'XAUUSD', fastEma: 9, slowEma: 21,
   rsiPeriod: 14, atrPeriod: 14, volumePeriod: 20, volumeSpikeMult: 1.25, stopAtr: 1.5,
-  rewardR: 0.8, adxMin: 20, rsiBuyMin: 52, rsiSellMax: 48, emaGapAtr: 0.04,
-  h1DistanceAtr: 0.10, sessionsUTC: [[0, 24]]
+  rewardR: 0.8, adxMin: 22, rsiBuyMin: 52, rsiSellMax: 44, emaGapAtr: 0.04,
+  h1DistanceAtr: 0.30, sessionsUTC: [[0, 24]]
 };
 const STATE = { pendingSignalBar:null, lastSentSignalBar:null, lastSentAt:0 };
 const finite=v=>{const n=Number(v);return Number.isFinite(n)?n:null};
@@ -22,7 +22,6 @@ function wait(status,extra={}){return{ready:false,status,pair:CONFIG.pair,strate
 
 async function scanGrokGold92Strategy(){
  const pair=CONFIG.pair;
- // Same unified live-gold candle stream as the other portfolio strategies.
  const [raw5,raw1h,livePrice]=await Promise.all([getGoldCandlesResilient('5min',150),getGoldCandlesResilient('1h',260),getPrice(pair)]);
  const c5=closedBars(raw5),c1h=closedBars(raw1h);if(c5.length<60||c1h.length<230)return wait('GROK92_NO_DATA',{m5Count:c5.length,h1Count:c1h.length});
  const cc=closes(c5),e9=emaSeries(cc,CONFIG.fastEma),e21=emaSeries(cc,CONFIG.slowEma),rs=rsiSeries(cc,CONFIG.rsiPeriod),as=atrSeries(c5,CONFIG.atrPeriod),i=c5.length-1,prev=i-1,rsi5=rs[i],atr5=as[i];
@@ -34,7 +33,7 @@ async function scanGrokGold92Strategy(){
  const h1Bias=h1CloseNow>h1Ema200?'BUY':h1CloseNow<h1Ema200?'SELL':null;if(side!==h1Bias)return wait('GROK92_H1_BIAS_MISMATCH',{side,h1Bias,rsi5,atr5,h1Adx});const h1Distance=Math.abs(h1CloseNow-h1Ema200)/h1Atr;if(h1Distance<CONFIG.h1DistanceAtr)return wait('GROK92_H1_TOO_CLOSE_EMA200',{side,h1Bias,h1Adx,h1Distance});
  const signalBar=c5[i],signalKey=barKey(signalBar);if(signalKey&&STATE.lastSentSignalBar===signalKey)return wait('GROK92_SIGNAL_ALREADY_SENT',{side,signalKey});const entry=finite(livePrice)??finite(raw5?.at(-1)?.close)??finite(signalBar.close);if(!Number.isFinite(entry))return wait('GROK92_NO_LIVE_PRICE',{side});const risk=atr5*CONFIG.stopAtr,stopLoss=side==='BUY'?entry-risk:entry+risk,target=side==='BUY'?entry+risk*CONFIG.rewardR:entry-risk*CONFIG.rewardR;STATE.pendingSignalBar=signalKey||null;
  const score=Math.min(100,Math.round(72+Math.min(10,Math.max(0,(h1Adx-CONFIG.adxMin)*.8))+Math.min(8,emaGapAtr*40)+Math.min(10,Math.max(0,(signalVolume/volAvg-CONFIG.volumeSpikeMult)*12))));
- return{ready:true,status:'GROK92_READY',pair,direction:side,strategyId:CONFIG.id,strategyLabel:CONFIG.label,entryMode:'EMA_CROSS_VOLUME_H1_REGIME',grade:'A',score,aiConfidence:0,entry,stopLoss,tp1:target,tp2:target,risk,rrTp1:CONFIG.rewardR,rrTp2:CONFIG.rewardR,atr5,rsi5,adx5:null,adx15:null,h1Adx,h1Bias,h1Ema200,h1Atr,h1Distance,ema9:e9[i],ema21:e21[i],emaGapAtr,signalVolume,volumeAverage:volAvg,volumeRatio:signalVolume/volAvg,signalBar:signalKey,reasons:['5M EMA9/21 fresh cross',`RSI ${side==='BUY'?'>':'<'} ${side==='BUY'?CONFIG.rsiBuyMin:CONFIG.rsiSellMax}`,`5M volume >= ${CONFIG.volumeSpikeMult}x average`,`EMA gap >= ${CONFIG.emaGapAtr} ATR`,`H1 ADX >= ${CONFIG.adxMin}`,'H1 price aligned with EMA200',`H1 distance >= ${CONFIG.h1DistanceAtr} ATR`,'All-day scan enabled','Unified Binance PAXG proxy candles',`SL ${CONFIG.stopAtr} ATR / TP ${CONFIG.rewardR}R`]};
+ return{ready:true,status:'GROK92_READY',pair,direction:side,strategyId:CONFIG.id,strategyLabel:CONFIG.label,entryMode:'EMA_CROSS_VOLUME_H1_REGIME_Q101',grade:'A',score,aiConfidence:0,entry,stopLoss,tp1:target,tp2:target,risk,rrTp1:CONFIG.rewardR,rrTp2:CONFIG.rewardR,atr5,rsi5,adx5:null,adx15:null,h1Adx,h1Bias,h1Ema200,h1Atr,h1Distance,ema9:e9[i],ema21:e21[i],emaGapAtr,signalVolume,volumeAverage:volAvg,volumeRatio:signalVolume/volAvg,signalBar:signalKey,reasons:['5M EMA9/21 fresh cross',`RSI ${side==='BUY'?'>':'<'} ${side==='BUY'?CONFIG.rsiBuyMin:CONFIG.rsiSellMax}`,`5M volume >= ${CONFIG.volumeSpikeMult}x average`,`EMA gap >= ${CONFIG.emaGapAtr} ATR`,`H1 ADX >= ${CONFIG.adxMin}`,'H1 price aligned with EMA200',`H1 distance >= ${CONFIG.h1DistanceAtr} ATR`,'All-day scan enabled','Unified live-gold candles',`SL ${CONFIG.stopAtr} ATR / TP ${CONFIG.rewardR}R`]};
 }
 function markSent(){STATE.lastSentAt=Date.now();if(STATE.pendingSignalBar){STATE.lastSentSignalBar=STATE.pendingSignalBar;STATE.pendingSignalBar=null}}
 module.exports={CONFIG,scan:scanGrokGold92Strategy,markSent};
