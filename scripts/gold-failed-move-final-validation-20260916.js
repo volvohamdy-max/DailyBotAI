@@ -1,0 +1,21 @@
+'use strict';
+/* FAILED MOVE REVERSAL — FINAL VALIDATION (research only)
+Core neighborhood discovered previously, now tested WITHOUT optimizing on these reports:
+BIG >=1.2 ATR, body fraction >=.60, SL=1 ATR, hold=12; reclaim .05/.15/.30; RR 1/1.25/1.5.
+Reports full, BUY/SELL, months, 6 contiguous blocks, rolling walk-forward style blocks, and execution-cost stress at 0.01 lot ($1 gold move=$1 P/L; cost $.20/trade).
+No live changes.
+*/
+const fs=require('fs'),F='data/xauusd-m5-dukascopy.json';const z=JSON.parse(fs.readFileSync(F,'utf8')),q=Array.isArray(z)?z:(z.candles||z.data||[]);const M=q.map(x=>({t:+new Date(x.t||x.time||x.timestamp),o:+(x.o??x.open),h:+(x.h??x.high),l:+(x.l??x.low),c:+(x.c??x.close)})).filter(x=>Number.isFinite(x.t+x.o+x.h+x.l+x.c)).sort((a,b)=>a.t-b.t),N=M.length;
+function ATR(n=14){let a=Array(N).fill(null),tr=M.map((b,i)=>i?Math.max(b.h-b.l,Math.abs(b.h-M[i-1].c),Math.abs(b.l-M[i-1].c)):b.h-b.l),s=0;for(let i=0;i<N;i++){if(i<n){s+=tr[i];if(i===n-1)a[i]=s/n}else a[i]=(a[i-1]*(n-1)+tr[i])/n}return a}const A=ATR();
+function trades(p,lo=60,hi=N-2){let out=[],o=null;for(let i=lo;i<=hi;i++){if(o){let b=M[i],px=null,why='';if(o.side==='BUY'){if(b.l<=o.sl){px=o.sl;why='SL'}else if(b.h>=o.tp){px=o.tp;why='TP'}}else{if(b.h>=o.sl){px=o.sl;why='SL'}else if(b.l<=o.tp){px=o.tp;why='TP'}}if(px==null&&i-o.ei>=12){px=b.c;why='TIME'}if(px!=null){out.push({...o,xi:i,xt:M[i].t,px,why,r:o.side==='BUY'?(px-o.en)/(o.en-o.sl):(o.en-px)/(o.sl-o.en),usd:o.side==='BUY'?px-o.en:o.en-px});o=null}continue}if(i<20||!A[i])continue;const prev=M[i-1],b=M[i],pr=prev.h-prev.l,pb=Math.abs(prev.c-prev.o);if(pr/A[i]<1.2||pr<=0||pb/pr<.60)continue;let side=null;const up=prev.c>prev.o&&b.c<prev.o&&b.l<prev.l+p.reclaim*A[i];const dn=prev.c<prev.o&&b.c>prev.o&&b.h>prev.h-p.reclaim*A[i];if(up)side='SELL';else if(dn)side='BUY';if(!side)continue;const en=M[i+1].o,r=A[i];o={side,en,sl:side==='BUY'?en-r:en+r,tp:side==='BUY'?en+p.rr*r:en-p.rr*r,si:i,ei:i+1,et:M[i+1].t}}
+return out}
+function st(a){let gp=0,gl=0,w=0,e=0,pk=0,dd=0,ls=0,ml=0;for(const x of a){e+=x.r;if(x.r>0){gp+=x.r;w++;ls=0}else if(x.r<0){gl+=-x.r;ls++;ml=Math.max(ml,ls)}pk=Math.max(pk,e);dd=Math.max(dd,pk-e)}return{n:a.length,wr:a.length?100*w/a.length:0,pf:gl?gp/gl:99,net:e,dd,ls:ml}}
+const fmt=s=>`T${s.n} WR${s.wr.toFixed(1)} PF${s.pf.toFixed(2)} N${s.net>=0?'+':''}${s.net.toFixed(2)}R DD${s.dd.toFixed(2)} LS${s.ls}`;
+const configs=[];for(const reclaim of[.05,.15,.30])for(const rr of[1,1.25,1.5])configs.push({reclaim,rr});
+console.log('FAILED MOVE REVERSAL — FINAL VALIDATION');console.log(`M5=${N} | ${new Date(M[0].t).toISOString()} → ${new Date(M[N-1].t).toISOString()}\n`);
+for(const p of configs){const a=trades(p),buy=a.filter(x=>x.side==='BUY'),sell=a.filter(x=>x.side==='SELL');console.log(`CORE reclaim=${p.reclaim} RR=${p.rr} | ALL ${fmt(st(a))} | BUY ${fmt(st(buy))} | SELL ${fmt(st(sell))}`)}
+const P={reclaim:.15,rr:1.5},ALL=trades(P);console.log('\nREFERENCE CORE = reclaim .15 / RR1.5 (chosen as middle-neighborhood, not best full-sample)');
+console.log('\n6 CONTIGUOUS BLOCKS');for(let k=0;k<6;k++){const lo=Math.floor(N*k/6),hi=Math.floor(N*(k+1)/6)-2,a=trades(P,Math.max(60,lo),hi);console.log(`B${k+1} ${new Date(M[Math.max(60,lo)].t).toISOString().slice(0,10)}→${new Date(M[hi].t).toISOString().slice(0,10)} | ${fmt(st(a))}`)}
+console.log('\nMONTHLY');const mm={};for(const x of ALL){const key=new Date(x.xt).toISOString().slice(0,7);(mm[key]??=[]).push(x)}for(const [k,a] of Object.entries(mm))console.log(`${k} | ${fmt(st(a))}`);
+console.log('\nEXECUTION COST — 0.01 LOT');for(const cost of[0,.2,.4,.6,1]){let gp=0,gl=0,net=0,w=0,e=0,pk=0,dd=0;for(const x of ALL){const v=x.usd-cost;net+=v;if(v>0){gp+=v;w++}else gl+=-v;e+=v;pk=Math.max(pk,e);dd=Math.max(dd,pk-e)}console.log(`cost $${cost.toFixed(2)}/trade | T${ALL.length} WR${(100*w/ALL.length).toFixed(1)} PF${(gl?gp/gl:99).toFixed(2)} NET$${net.toFixed(2)} DD$${dd.toFixed(2)}`)}
+console.log('\nROBUSTNESS RULE: do not promote unless neighborhood remains broadly positive, BUY/SELL are understood, most blocks are positive, monthly losses are tolerable, and realistic cost does not erase the edge. Portfolio collision test comes after this.');
