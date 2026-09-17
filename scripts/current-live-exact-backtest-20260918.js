@@ -1,0 +1,83 @@
+'use strict';
+/*
+ FRESH LIVE PORTFOLIO BACKTEST — 2026-09-15
+ Written from scratch from CURRENT live strategy files. No old backtest imported.
+ Historical execution model: signal on closed M5 bar -> entry next M5 open.
+ Fixed-target strategies: conservative same-bar SL before TP; maxBars exits at close.
+ Pro: fixed $12 SL, RSI exit on M5 close, Friday 21:45 UTC close, 180m cooldown after loss, max 2 losses/day.
+ H1 is causally aggregated from M5 and only COMPLETED H1 bars are used. D1 Pro bias uses only completed UTC days.
+ One open trade PER STRATEGY, matching live open-trade guard.
+*/
+const fs=require('fs');
+const PATH='data/xauusd-m5-dukascopy.json';
+if(!fs.existsSync(PATH)){console.error('❌ Missing '+PATH);process.exit(1)}
+const raw=JSON.parse(fs.readFileSync(PATH,'utf8'));
+const M=raw.map(x=>({t:+(x.timestamp??x.time),o:+(x.open??x.o),h:+(x.high??x.h),l:+(x.low??x.l),c:+(x.close??x.c),v:+(x.volume??x.v??0)})).filter(x=>[x.t,x.o,x.h,x.l,x.c].every(Number.isFinite)).sort((a,b)=>a.t-b.t);
+if(M.length<1000){console.error('❌ Not enough M5 data');process.exit(1)}
+const day=t=>new Date(t).toISOString().slice(0,10), month=t=>day(t).slice(0,7), hour=t=>new Date(t).getUTCHours();
+function ema(v,p){const a=Array(v.length).fill(NaN),k=2/(p+1);let e=v[0];for(let i=0;i<v.length;i++){if(i)e=v[i]*k+e*(1-k);if(i>=p-1)a[i]=e}return a}
+function rsi(v,p=14){const a=Array(v.length).fill(NaN);let ag=0,al=0;for(let i=1;i<v.length;i++){const d=v[i]-v[i-1],g=Math.max(d,0),l=Math.max(-d,0);if(i<=p){ag+=g;al+=l;if(i===p){ag/=p;al/=p;a[i]=al===0?100:100-100/(1+ag/al)}}else{ag=(ag*(p-1)+g)/p;al=(al*(p-1)+l)/p;a[i]=al===0?100:100-100/(1+ag/al)}}return a}
+function atr(c,p=14){const a=Array(c.length).fill(NaN),q=[];let s=0;for(let i=1;i<c.length;i++){const tr=Math.max(c[i].h-c[i].l,Math.abs(c[i].h-c[i-1].c),Math.abs(c[i].l-c[i-1].c));q.push(tr);s+=tr;if(q.length>p)s-=q.shift();if(q.length===p)a[i]=s/p}return a}
+function adx(c,p=14){const o=Array(c.length).fill(NaN),tr=Array(c.length).fill(0),pd=Array(c.length).fill(0),md=Array(c.length).fill(0);for(let i=1;i<c.length;i++){const up=c[i].h-c[i-1].h,dn=c[i-1].l-c[i].l;pd[i]=up>dn&&up>0?up:0;md[i]=dn>up&&dn>0?dn:0;tr[i]=Math.max(c[i].h-c[i].l,Math.abs(c[i].h-c[i-1].c),Math.abs(c[i].l-c[i-1].c))}let tn=0,pn=0,mn=0;for(let i=1;i<=p&&i<c.length;i++){tn+=tr[i];pn+=pd[i];mn+=md[i]}const dx=Array(c.length).fill(NaN);for(let i=p;i<c.length;i++){if(i>p){tn=tn-tn/p+tr[i];pn=pn-pn/p+pd[i];mn=mn-mn/p+md[i]}if(tn>0){const a=100*pn/tn,b=100*mn/tn;if(a+b>0)dx[i]=100*Math.abs(a-b)/(a+b)}}let seed=0,n=0,last=NaN;for(let i=p;i<c.length;i++){if(!Number.isFinite(dx[i]))continue;if(n<p){seed+=dx[i];n++;if(n===p)last=o[i]=seed/p}else last=o[i]=(last*(p-1)+dx[i])/p}return o}
+function aggregate(src,ms){const out=[];let z=null,k0=null;for(const x of src){const k=Math.floor(x.t/ms)*ms;if(k!==k0){if(z)out.push(z);z={t:k,o:x.o,h:x.h,l:x.l,c:x.c,v:x.v};k0=k}else{z.h=Math.max(z.h,x.h);z.l=Math.min(z.l,x.l);z.c=x.c;z.v+=x.v}}if(z)out.push(z);return out}
+const H=aggregate(M,3600000), D=aggregate(M,86400000);
+const C=M.map(x=>x.c), R=rsi(C), A=atr(M), X=adx(M), E9=ema(C,9),E20=ema(C,20),E21=ema(C,21),E50=ema(C,50);
+const HC=H.map(x=>x.c),HE20=ema(HC,20),HE50=ema(HC,50),HE200=ema(HC,200),HA=atr(H),HX=adx(H);
+const DC=D.map(x=>x.c),DE50=ema(DC,50);
+let hp=0,dp=0;
+const hIdx=Array(M.length).fill(-1),dIdx=Array(M.length).fill(-1);
+for(let i=0;i<M.length;i++){while(hp+1<H.length&&H[hp+1].t<=M[i].t)hp++;hIdx[i]=Math.max(0,hp-1);while(dp+1<D.length&&D[dp+1].t+86400000<=M[i].t)dp++;dIdx[i]=(D[dp]&&D[dp].t+86400000<=M[i].t)?dp:-1}
+const defs={Q15:{name:'Failed Move Q15'},
+ EXHAUSTION:{name:'Gold Exhaustion V3'},RAPID:{name:'Gold Rapid Scalp V5'},GROK:{name:'Grok Gold 92'},PRO:{name:'Pro Strategy'},RANGE:{name:'Gold Range MR'},SWEEP:{name:'Gold Sweep 5'},MICRO:{name:'Gold Micro Pullback'}
+};
+const trades=Object.fromEntries(Object.keys(defs).map(k=>[k,[]])), active=Object.fromEntries(Object.keys(defs).map(k=>[k,null]));
+const pro={lossDay:null,losses:0,cool:0};
+function open(k,i,side,risk,reward,maxBars,meta={}){if(active[k]||i+1>=M.length||!(risk>0))return;const entry=M[i+1].o,sl=side==='BUY'?entry-risk:entry+risk,tp=reward==null?null:(side==='BUY'?entry+reward:entry-reward);active[k]={k,side,entry,sl,tp,risk,entryI:i+1,signalI:i,maxBars,meta}}
+function close(k,i,px,reason){const t=active[k];if(!t)return;const pnl=t.side==='BUY'?px-t.entry:t.entry-px,r=pnl/t.risk;trades[k].push({...t,exitI:i,exit:M[i].t,px,reason,r});active[k]=null;if(k==='PRO'&&r<0){const d=day(M[i].t);if(pro.lossDay!==d){pro.lossDay=d;pro.losses=0}pro.losses++;pro.cool=M[i].t+180*60000}}
+function manage(k,i){const t=active[k];if(!t||i<t.entryI)return false;const b=M[i],sl=t.side==='BUY'?b.l<=t.sl:b.h>=t.sl,tp=t.tp!=null&&(t.side==='BUY'?b.h>=t.tp:b.l<=t.tp);if(sl){close(k,i,t.sl,'STOP');return true}if(tp){close(k,i,t.tp,'TP');return true}if(t.maxBars&&i-t.entryI+1>=t.maxBars){close(k,i,b.c,'MAXBARS');return true}return false}
+function volAvg(i,p=20){if(i<p)return NaN;let s=0;for(let j=i-p;j<i;j++)s+=M[j].v;return s/p}
+function atrAvg(i,n=50){if(i<n)return NaN;let s=0,c=0;for(let j=i-n;j<i;j++)if(Number.isFinite(A[j])){s+=A[j];c++}return c===n?s/n:NaN}
+function signalQ15(i){if(i<60||!Number.isFinite(A[i]))return;const aa=atrAvg(i);if(!Number.isFinite(aa))return;const x=M[i-1],b=M[i],rg=x.h-x.l,br=b.h-b.l;if(!(rg>0&&br>0)||x.c>=x.o)return;if(rg/A[i]<1.5||Math.abs(x.c-x.o)/rg<.60)return;if(!(b.c>x.o&&b.h>x.h-.30*A[i]&&b.c>b.o&&(b.c-b.l)/br>=.65))return;const ar=A[i]/aa;if(ar<.75||ar>2||[6,7,8].includes(hour(b.t)))return;open('Q15',i,'BUY',A[i],1.5*A[i],12)}
+function signalEx(i){if(i<45||!Number.isFinite(A[i-1])||!Number.isFinite(X[i-1]))return;const ex=i-1,confirm=i;if([1,5,23].includes(hour(M[ex].t))||X[ex]>32)return;const exRange=M[ex].h-M[ex].l;if(!(exRange>0))return;const start=M[ex-3].c,end=M[ex-1].c,disp=end-start;if(!disp)return;const side=disp<0?'BUY':'SELL',q=side==='BUY'?{burst:2.2}:{burst:2.6};const exBody=Math.abs(M[ex].c-M[ex].o)/exRange;if(exBody>(side==='SELL'?.55:.50))return;if(side==='SELL'&&X[ex]>28)return;if(Math.abs(disp)<A[ex]*q.burst)return;let agree=0;for(let k=ex-3;k<ex;k++){if(disp>0&&M[k].c>M[k].o)agree++;if(disp<0&&M[k].c<M[k].o)agree++}if(agree<2)return;const b=M[ex],rg=b.h-b.l;if(!(rg>0))return;const uw=(b.h-Math.max(b.o,b.c))/rg,lw=(Math.min(b.o,b.c)-b.l)/rg;if(side==='BUY'&&lw<.30)return;if(side==='SELL'&&uw<.30)return;if(side==='BUY'){if(M[confirm].c<=b.l+rg*.15||M[confirm].l<b.l-A[ex]*.25)return}else if(M[confirm].c>=b.h-rg*.15||M[confirm].h>b.h+A[ex]*.25)return;const risk=Math.max(A[ex]*1.75,2),reward=Math.max(A[ex]*1.5,2);open('EXHAUSTION',i,side,risk,reward,3)}
+function signalRapid(i){const h=hIdx[i];if(i<60||h<52||![E20[i],A[i],HE20[h],HE50[h],HA[h],HE20[h-2]].every(Number.isFinite))return;const hr=hour(M[i].t);if([2,6,12,18,19,20,22].includes(hr))return;const sep=Math.abs(HE20[h]-HE50[h])/HA[h];if(sep<.10)return;const bull=HC[h]>HE20[h]&&HE20[h]>HE50[h]&&HE20[h]>HE20[h-2],bear=HC[h]<HE20[h]&&HE20[h]<HE50[h]&&HE20[h]<HE20[h-2];if(!bull&&!bear)return;let hi=-Infinity,lo=Infinity;for(let j=i-3;j<i;j++){hi=Math.max(hi,M[j].h);lo=Math.min(lo,M[j].l)}const b=M[i],rg=b.h-b.l,body=Math.abs(b.c-b.o);if(!(rg>0)||body/A[i]<.65||rg/A[i]>2||Math.abs(b.c-E20[i])/A[i]>1.1)return;const pos=(b.c-b.l)/rg,buy=bull&&b.c>hi&&pos>=.76&&b.c>E20[i],sell=bear&&b.c<lo&&pos<=.24&&b.c<E20[i];if(!buy&&!sell)return;const side=buy?'BUY':'SELL';if(side==='BUY'&&[3,16,17].includes(hr))return;const entry=M[i+1]?.o;if(!Number.isFinite(entry))return;const swing=side==='BUY'?Math.min(b.l,M[i-1].l):Math.max(b.h,M[i-1].h),risk=Math.max(A[i]*.65,Math.abs(entry-swing));if(risk>A[i]*1.35)return;open('RAPID',i,side,risk,risk*(side==='BUY'?.85:.8),10)}
+function signalGrok(i){const h=hIdx[i];if(i<60||h<205||![E9[i],E21[i],E9[i-1],E21[i-1],R[i],A[i],HE200[h],HA[h],HX[h]].every(Number.isFinite))return;const up=E9[i-1]<=E21[i-1]&&E9[i]>E21[i],dn=E9[i-1]>=E21[i-1]&&E9[i]<E21[i];let side=null;if(up&&R[i]>52)side='BUY';if(dn&&R[i]<44)side='SELL';if(!side||Math.abs(E9[i]-E21[i])/A[i]<.04)return;const va=volAvg(i,20);if(!(va>0&&M[i].v>=va*1.25)||HX[h]<22)return;const bias=HC[h]>HE200[h]?'BUY':HC[h]<HE200[h]?'SELL':null;if(side!==bias||Math.abs(HC[h]-HE200[h])/HA[h]<.30)return;const baseRisk=A[i]*1.5,slm=1.225,tpm=side==='BUY'?.90:.85;open('GROK',i,side,baseRisk*slm,baseRisk*.8*tpm,null)}
+function signalPro(i){const d=dIdx[i];if(i<80||d<49||![R[i-1],R[i],X[i],A[i],DE50[d]].every(Number.isFinite))return;const now=M[i].t,dy=day(now);if(pro.lossDay!==dy){pro.lossDay=dy;pro.losses=0}if(pro.losses>=2||now<pro.cool)return;const dt=new Date(now),min=dt.getUTCHours()*60+dt.getUTCMinutes();if(dt.getUTCDay()===3&&min>=1020&&min<=1230)return;const bias=DC[d]>DE50[d]?'BUY':'SELL',aa=atrAvg(i),ratio=A[i]/aa;if(!Number.isFinite(ratio))return;let side=null;if(R[i-1]>=41&&R[i]<41&&bias==='BUY'&&X[i]>=27&&ratio<=1.30)side='BUY';if(R[i-1]<=63&&R[i]>63&&bias==='SELL'&&X[i]>=19&&ratio<=1.15)side='SELL';if(!side)return;if(side==='BUY'&&hour(now)===8)return;const b=M[i],rg=b.h-b.l;if(!(rg>0)||Math.abs(b.c-b.o)/rg<.5)return;if(side==='BUY'&&(i<36||b.c-M[i-36].c< -20))return;open('PRO',i,side,12,null,null)}
+function signalRange(i){if(i<100||![E20[i],E20[i-6],R[i],A[i],X[i]].every(Number.isFinite))return;let s=0,n=0;for(let j=i-50;j<i;j++)if(Number.isFinite(A[j])){s+=A[j];n++}if(n<45)return;const ratio=A[i]/(s/n),slope=Math.abs(E20[i]-E20[i-6])/A[i],look=M.slice(i-30,i),hi=Math.max(...look.map(x=>x.h)),lo=Math.min(...look.map(x=>x.l)),width=hi-lo,b=M[i],rg=b.h-b.l;if(!(rg>0))return;const body=Math.abs(b.c-b.o)/rg,lw=(Math.min(b.o,b.c)-b.l)/rg;if(X[i]>14||ratio<.55||ratio>1.6||slope>.2||width<A[i]*1.8||width>A[i]*8||body>.75)return;const edge=Math.max(A[i]*.3,width*.1);let lt=0,ht=0;for(const x of look){if(x.l<=lo+edge)lt++;if(x.h>=hi-edge)ht++}if(lt<1||ht<1||!(b.l<=lo+edge&&b.c>=lo+edge*.75&&lw>=.25&&R[i]<=46))return;const entry=M[i+1]?.o;if(!Number.isFinite(entry))return;const structural=entry-(lo-A[i]*.12),risk=Math.min(Math.max(A[i]*.55,structural),A[i]*1.4),md=(hi+lo)/2-entry,reward=Math.min(md,risk*1.5);if(!(risk>0&&reward/risk>=.7))return;open('RANGE',i,'BUY',risk,reward,12)}
+function signalSweep(i){if(i<30||![9,10,11,12,17].includes(hour(M[i].t))||!Number.isFinite(A[i]))return;let ph=-Infinity;for(let k=i-6;k<i;k++)ph=Math.max(ph,M[k].h);const b=M[i],rg=b.h-b.l;if(!(rg>0))return;const uw=(b.h-Math.max(b.o,b.c))/rg,pm=Math.abs(M[i-1].c-M[i-3].c);if(b.h<ph+A[i]*.04||!(b.c<ph)||!(b.c<b.o)||uw<.60||pm<A[i]*.50)return;open('SWEEP',i,'SELL',5,5,4)}
+function signalMicro(i){if(i<60||[16,17,20,21].includes(hour(M[i].t))||![A[i],E9[i],E21[i],E50[i],E21[i-3]].every(Number.isFinite))return;const b=M[i],rg=b.h-b.l;if(!(rg>0)||Math.abs(b.c-b.o)/rg<.75||Math.abs(E9[i]-E21[i])/A[i]<.15)return;if(!(E9[i]>E21[i]&&E21[i]>E50[i]&&E21[i]>E21[i-3]))return;const is=i-4,ie=i-2,imp=M[ie].c-M[is].o;if(imp<1.4*A[i])return;let pl=Infinity;for(let j=ie+1;j<i;j++)pl=Math.min(pl,M[j].l);const retr=(M[ie].c-pl)/imp;if(retr<.12||retr>.35)return;const pos=(b.c-b.l)/rg;if(pos<.78||b.c<=M[i-1].h)return;open('MICRO',i,'BUY',2*A[i],2*A[i],10)}
+for(let i=250;i<M.length-1;i++){
+ // exits first: an open trade blocks same strategy until actually closed
+ for(const k of Object.keys(defs)){
+  if(!active[k])continue;
+  if(k==='PRO'){
+   const t=active.PRO,b=M[i],sl=t.side==='BUY'?b.l<=t.sl:b.h>=t.sl;if(sl){close('PRO',i,t.sl,'STOP');continue}
+   if(t.side==='BUY'&&Number.isFinite(R[i])&&R[i]>=58){close('PRO',i,b.c,'RSI58');continue}
+   if(t.side==='SELL'&&Number.isFinite(R[i])&&R[i]<=45){close('PRO',i,b.c,'RSI45');continue}
+   const z=new Date(b.t);if(z.getUTCDay()===5&&(z.getUTCHours()*60+z.getUTCMinutes())>=1305){close('PRO',i,b.c,'FRIDAY');continue}
+  }else manage(k,i)
+ }
+ if(!active.Q15)signalQ15(i);if(!active.EXHAUSTION)signalEx(i);if(!active.RAPID)signalRapid(i);if(!active.GROK)signalGrok(i);if(!active.PRO)signalPro(i);if(!active.RANGE)signalRange(i);if(!active.SWEEP)signalSweep(i);if(!active.MICRO)signalMicro(i);
+}
+for(const k of Object.keys(defs))if(active[k])close(k,M.length-1,M.at(-1).c,'OPEN_END');
+function stats(a){const n=a.length,w=a.filter(x=>x.r>0).length,g=a.filter(x=>x.r>0).reduce((s,x)=>s+x.r,0),l=-a.filter(x=>x.r<0).reduce((s,x)=>s+x.r,0),net=a.reduce((s,x)=>s+x.r,0);let eq=0,pk=0,dd=0,ls=0,mx=0;for(const x of a){eq+=x.r;pk=Math.max(pk,eq);dd=Math.max(dd,pk-eq);if(x.r<0){ls++;mx=Math.max(mx,ls)}else ls=0}return{n,w,wr:n?100*w/n:0,pf:l?g/l:(g?Infinity:0),net,dd,ls:mx}}
+function f(s){return`T${s.n} WR${s.wr.toFixed(1)}% PF${Number.isFinite(s.pf)?s.pf.toFixed(2):'∞'} NET${s.net>=0?'+':''}${s.net.toFixed(2)}R DD${s.dd.toFixed(2)}R LS${s.ls}`}
+
+
+const all=Object.values(trades).flat().sort((a,b)=>a.exit-b.exit);
+console.log('\n━━━━━━━━ CURRENT LIVE EXACT SEQUENTIAL BACKTEST ━━━━━━━━');
+console.log('Data '+new Date(M[0].t).toISOString().slice(0,10)+' → '+new Date(M.at(-1).t).toISOString().slice(0,10)+' | M5 '+M.length);
+for(const k of Object.keys(defs)){
+ const a=trades[k], buy=a.filter(x=>x.side==='BUY'), sell=a.filter(x=>x.side==='SELL');
+ console.log(defs[k].name.padEnd(24)+' '+f(stats(a))+(buy.length?' | BUY '+f(stats(buy)):'')+(sell.length?' | SELL '+f(stats(sell)):''));
+}
+console.log('\nPORTFOLIO '+f(stats(all)));
+const t0=M[0].t,t1=M.at(-1).t,span=t1-t0;
+for(const [lab,days] of [['180D',180],['90D',90]]){
+ const a=all.filter(x=>M[x.entryI].t>=t1-days*86400000);
+ console.log(lab.padEnd(9)+f(stats(a)));
+}
+console.log('\n4 FOLDS');
+for(let q=0;q<4;q++){const a=t0+span*q/4,e=q===3?t1+1:t0+span*(q+1)/4,z=all.filter(x=>{const t=M[x.entryI].t;return t>=a&&t<e});console.log('F'+(q+1)+' '+f(stats(z)))}
+console.log('\nMONTHLY');
+for(const mo of [...new Set(all.map(x=>month(M[x.entryI].t)))].sort()){const z=all.filter(x=>month(M[x.entryI].t)===mo);console.log(mo+' '+f(stats(z)))}
+console.log('\nLIVE SETTINGS INCLUDED: Grok BUY SLx1.225 TPx0.90 / SELL SLx1.225 TPx0.85; Rapid BUY SLx0.90 TPx0.90 / SELL SLx1.05 TPx0.85.');
