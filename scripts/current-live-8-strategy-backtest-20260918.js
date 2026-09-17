@@ -84,4 +84,38 @@ for(const [label,a,b] of windows){
 }
 console.log('\nCAIRO HOURLY — PORTFOLIO');
 for(let h=0;h<24;h++){const z=all.filter(x=>{const m=cairoMin(M[x.entryI].t);return m>=h*60&&m<(h+1)*60});if(z.length)console.log(`${String(h).padStart(2,'0')}:00-${String((h+1)%24).padStart(2,'0')}:00 | ${f(stats(z))}`)}
+
+console.log('\n━━━━━━━━ CAIRO STRATEGY × HOUR MATRIX ━━━━━━━━');
+for(const k of Object.keys(defs)){
+ console.log('\n'+defs[k].name);
+ for(let h=0;h<24;h++){
+  const z=trades[k].filter(x=>{const m=cairoMin(M[x.entryI].t);return m>=h*60&&m<(h+1)*60});
+  if(z.length)console.log(` ${String(h).padStart(2,'0')}:00 | ${f(stats(z))}`);
+ }
+}
+const cells=[];
+for(const k of Object.keys(defs))for(let h=0;h<24;h++){
+ const z=trades[k].filter(x=>{const m=cairoMin(M[x.entryI].t);return m>=h*60&&m<(h+1)*60}),st=stats(z);
+ if(st.n>=3)cells.push({k,h,st});
+}
+cells.sort((a,b)=>(a.st.net-b.st.net)||(a.st.pf-b.st.pf));
+console.log('\n━━━━━━━━ WEAKEST CELLS (min 3 trades) ━━━━━━━━');
+cells.slice(0,30).forEach(x=>console.log(`${defs[x.k].name.padEnd(24)} ${String(x.h).padStart(2,'0')}:00 | ${f(x.st)}`));
+
+function sim(blocks){
+ const z=all.filter(x=>!blocks.some(b=>b.k===x.k&&b.h===Math.floor(cairoMin(M[x.entryI].t)/60)));
+ return {z,st:stats(z)};
+}
+console.log('\n━━━━━━━━ SELECTIVE BLOCK SIMULATION ━━━━━━━━');
+console.log('BASE | '+f(stats(all)));
+const ranked=cells.filter(x=>x.st.pf<1&&x.st.net<0).sort((a,b)=>a.st.net-b.st.net);
+for(let n=1;n<=Math.min(12,ranked.length);n++){
+ const blocks=ranked.slice(0,n).map(x=>({k:x.k,h:x.h})),q=sim(blocks);
+ console.log(`TOP ${n} NEGATIVE CELLS BLOCKED | ${f(q.st)} | removed ${all.length-q.z.length} trades | ${blocks.map(b=>defs[b.k].name+'@'+String(b.h).padStart(2,'0')).join(', ')}`);
+}
+console.log('\n━━━━━━━━ ROBUST BLOCK CANDIDATES ━━━━━━━━');
+for(const x of ranked.slice(0,20)){
+ const keep=all.filter(t=>!(t.k===x.k&&Math.floor(cairoMin(M[t.entryI].t)/60)===x.h)),ks=stats(keep);
+ console.log(`${defs[x.k].name.padEnd(24)} @${String(x.h).padStart(2,'0')}:00 removes ${f(x.st)} => PORT ${f(ks)}`);
+}
 console.log('\nNOTES');console.log('• Snapshot aligned to current live strategy parameters: Exhaustion Q490, Rapid Q2680, Grok Q101, Pro, Range MR, Sweep5, Micro Q3327, Q15.');console.log('• H1/D1 are reconstructed causally from the same Dukascopy M5 file; no future H1/D1 close is visible.');console.log('• Historical live-price gap checks cannot be reproduced from M5 OHLC, so entry is next M5 open.');console.log('• Portfolio line is arithmetic sum of independent strategy R; live allows one open trade PER strategy, so strategies can overlap.');
