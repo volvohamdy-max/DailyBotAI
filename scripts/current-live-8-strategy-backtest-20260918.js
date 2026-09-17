@@ -26,7 +26,7 @@ const HC=H.map(x=>x.c),HE20=ema(HC,20),HE50=ema(HC,50),HE200=ema(HC,200),HA=atr(
 const DC=D.map(x=>x.c),DE50=ema(DC,50);
 let hp=0,dp=0;
 const hIdx=Array(M.length).fill(-1),dIdx=Array(M.length).fill(-1);
-for(let i=0;i<M.length;i++){while(hp+1<H.length&&H[hp+1].t+3600000<=M[i].t)hp++;hIdx[i]=(H[hp]&&H[hp].t+3600000<=M[i].t)?hp:-1;while(dp+1<D.length&&D[dp+1].t+86400000<=M[i].t)dp++;dIdx[i]=(D[dp]&&D[dp].t+86400000<=M[i].t)?dp:-1}
+for(let i=0;i<M.length;i++){while(hp+1<H.length&&H[hp+1].t<=M[i].t)hp++;hIdx[i]=Math.max(0,hp-1);while(dp+1<D.length&&D[dp+1].t+86400000<=M[i].t)dp++;dIdx[i]=(D[dp]&&D[dp].t+86400000<=M[i].t)?dp:-1}
 const defs={Q15:{name:'Failed Move Q15'},
  EXHAUSTION:{name:'Gold Exhaustion V3'},RAPID:{name:'Gold Rapid Scalp V5'},GROK:{name:'Grok Gold 92'},PRO:{name:'Pro Strategy'},RANGE:{name:'Gold Range MR'},SWEEP:{name:'Gold Sweep 5'},MICRO:{name:'Gold Micro Pullback'}
 };
