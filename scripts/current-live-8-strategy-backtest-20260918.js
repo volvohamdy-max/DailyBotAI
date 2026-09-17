@@ -118,4 +118,32 @@ for(const x of ranked.slice(0,20)){
  const keep=all.filter(t=>!(t.k===x.k&&Math.floor(cairoMin(M[t.entryI].t)/60)===x.h)),ks=stats(keep);
  console.log(`${defs[x.k].name.padEnd(24)} @${String(x.h).padStart(2,'0')}:00 removes ${f(x.st)} => PORT ${f(ks)}`);
 }
+
+console.log('\n━━━━━━━━ CAIRO TIME WALK-FORWARD VALIDATION ━━━━━━━━');
+const wfCandidates=[
+ ['pro',4],['pro',8],['rapid',16],['pro',15],
+ ['grok',13],['rapid',0],['micro',6],['pro',23]
+];
+const t0=M[0].t,t1=M[M.length-1].t,span=t1-t0;
+function periodStat(z,a,b){return stats(z.filter(x=>{const t=M[x.entryI].t;return t>=a&&t<b}))}
+function cellTrades(k,h){return trades[k].filter(x=>Math.floor(cairoMin(M[x.entryI].t)/60)===h)}
+const validated=[];
+for(const [k,h] of wfCandidates){
+ const z=cellTrades(k,h),full=stats(z);
+ const folds=[];
+ for(let q=0;q<4;q++)folds.push(periodStat(z,t0+span*q/4,q===3?t1+1:t0+span*(q+1)/4));
+ const d180=periodStat(z,t1-180*86400000,t1+1),d90=periodStat(z,t1-90*86400000,t1+1);
+ const badFolds=folds.filter(x=>x.n>=2&&x.net<0).length;
+ const posFolds=folds.filter(x=>x.n>=2&&x.net>0).length;
+ const robust=full.n>=6&&full.pf<0.85&&full.net<0&&badFolds>=2;
+ if(robust)validated.push({k,h});
+ console.log(`\n${defs[k].name} @${String(h).padStart(2,'0')}:00 | FULL ${f(full)} | 180D ${f(d180)} | 90D ${f(d90)} | badFolds ${badFolds} posFolds ${posFolds} | ${robust?'ROBUST-BAD':'NOT CONFIRMED'}`);
+ folds.forEach((x,i)=>console.log(`  F${i+1} ${f(x)}`));
+}
+console.log('\n━━━━━━━━ WALK-FORWARD CONFIRMED BLOCK SIM ━━━━━━━━');
+console.log('BASE | '+f(stats(all)));
+if(validated.length){
+ const q=sim(validated);
+ console.log('CONFIRMED | '+f(q.st)+' | removed '+(all.length-q.z.length)+' trades | '+validated.map(b=>defs[b.k].name+'@'+String(b.h).padStart(2,'0')).join(', '));
+}else console.log('No candidate met robust criteria; keep live hours unchanged.');
 console.log('\nNOTES');console.log('• Snapshot aligned to current live strategy parameters: Exhaustion Q490, Rapid Q2680, Grok Q101, Pro, Range MR, Sweep5, Micro Q3327, Q15.');console.log('• H1/D1 are reconstructed causally from the same Dukascopy M5 file; no future H1/D1 close is visible.');console.log('• Historical live-price gap checks cannot be reproduced from M5 OHLC, so entry is next M5 open.');console.log('• Portfolio line is arithmetic sum of independent strategy R; live allows one open trade PER strategy, so strategies can overlap.');
