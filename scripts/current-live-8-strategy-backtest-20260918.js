@@ -121,8 +121,8 @@ for(const x of ranked.slice(0,20)){
 
 console.log('\n━━━━━━━━ CAIRO TIME WALK-FORWARD VALIDATION ━━━━━━━━');
 const wfCandidates=[
- ['pro',4],['pro',8],['rapid',16],['pro',15],
- ['grok',13],['rapid',0],['micro',6],['pro',23]
+ ['PRO',4],['PRO',8],['RAPID',16],['PRO',15],
+ ['GROK',13],['RAPID',0],['MICRO',6],['PRO',23]
 ];
 const t0=M[0].t,t1=M[M.length-1].t,span=t1-t0;
 function periodStat(z,a,b){return stats(z.filter(x=>{const t=M[x.entryI].t;return t>=a&&t<b}))}
