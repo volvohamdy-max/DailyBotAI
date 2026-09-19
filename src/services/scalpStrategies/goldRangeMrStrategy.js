@@ -3,7 +3,7 @@ const { getGoldCandlesResilient } = require('../goldCandleRecovery');
 
 // Gold Range MR V3 — promoted from the robust V3 research winner.
 // Keep execution/risk constants aligned with the research engine.
-const CONFIG={id:'GOLD_RANGE_MR',label:'🌊 Gold Range MR V3',pair:'XAUUSD',timeframe:'5min',side:'BOTH',adxMax:20,atrLo:.72,atrHi:1.12,emaSlopeMax:.42,widthMin:2.6,widthMax:5.8,edgeAtr:.28,edgeWidth:.075,wickMin:.35,bodyMax:.58,rsiEdge:45,slMinAtr:.90,slCapAtr:1.45,stopPadAtr:.22,minRR:.85,maxRR:1.35,maxBars:18};
+const CONFIG={id:'GOLD_RANGE_MR',label:'🌊 Gold Range MR V3',pair:'XAUUSD',timeframe:'5min',side:'BOTH',adxMax:26,atrLo:.70,atrHi:1.12,emaSlopeMax:.35,widthMin:2.6,widthMax:5.8,edgeAtr:.28,edgeWidth:.075,wickMin:.35,bodyMax:.58,rsiEdge:45,slMinAtr:.90,slCapAtr:1.45,stopPadAtr:.22,minRR:.85,maxRR:1.35,maxBars:18};
 const STATE={lastSentSignalBar:null};
 function finite(v){const n=Number(v);return Number.isFinite(n)?n:null;}
 function closed(rows){return Array.isArray(rows)&&rows.length>1?rows.slice(0,-1):[];}
