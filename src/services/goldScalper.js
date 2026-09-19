@@ -1,7 +1,7 @@
 require('./installMassiveMarketFallback');
 const grokGold92Strategy=require('./scalpStrategies/grokGold92Strategy');
 const proStrategy=require('./scalpStrategies/proStrategyMegaP1');
-const goldRangeMrStrategy=require('./scalpStrategies/goldRangeMrMegaN4');
+const goldRangeMrStrategy=require('./scalpStrategies/goldRangeMrStrategy');
 const goldRapidScalpStrategy=require('./scalpStrategies/goldRapidScalpStrategy');
 const goldSweep5Strategy=require('./scalpStrategies/goldSweep5Strategy');
 const goldExhaustionV3Strategy=require('./scalpStrategies/goldExhaustionV3Strategy');
