@@ -4,7 +4,7 @@ const {getPrice}=require('../marketService');
 // Q15 locked candidate — parity module only until final live integration is approved.
 // BUY-only failed bearish expansion: BIG>=1.5 ATR, impulse body>=.60, reclaim=.30 ATR,
 // bullish confirmation close-position>=.65, ATR regime .75..2, block UTC 06/07/08, SL=1 ATR, TP=1.5 ATR, maxBars=12.
-const CONFIG={id:'GOLD_FAILED_MOVE_Q15',label:'🔄 Gold Failed Move Q15',pair:'XAUUSD',bigAtr:1.5,impulseBodyMin:.60,reclaimAtr:.30,confirmClosePos:.65,atrRatioMin:.75,atrRatioMax:2,blockedHoursUTC:[6,7,8],slAtr:1,rr:1.5,maxBars:12};
+const CONFIG={id:'GOLD_FAILED_MOVE_Q15',label:'🔄 Gold Failed Move Q15',pair:'XAUUSD',bigAtr:1.5,impulseBodyMin:.65,reclaimAtr:.30,confirmClosePos:.65,atrRatioMin:.60,atrRatioMax:2,blockedHoursUTC:[6,7,8],slAtr:1,rr:1.5,maxBars:12};
 const STATE={lastSignalBar:null};
 const finite=v=>{const n=Number(v);return Number.isFinite(n)?n:null};
 function closed(r){return Array.isArray(r)&&r.length>1?r.slice(0,-1):[]}
