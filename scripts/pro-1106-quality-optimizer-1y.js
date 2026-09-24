@@ -17,7 +17,7 @@ function run(p){let T=[],op=null,cool=0,loss={};for(let i=65;i<N-1;i++){let b=M[
 const base={bs:14,ss:12,block:{BUY:new Set([8]),SELL:new Set()},adx:{BUY:0,SELL:0},atrLo:{BUY:0,SELL:0},atrHi:{BUY:99,SELL:99},body:{BUY:0,SELL:0},mom:-9999};
 const F=s=>`T${s.n} WR${s.wr.toFixed(1)} PF${s.pf.toFixed(2)} N${s.net>=0?'+':''}${s.net.toFixed(2)}R DD${s.dd.toFixed(2)} LS${s.ls}`;
 console.log('🧪 PRO 1106 — STOP × HOURS × QUALITY OPTIMIZER');console.log('DATA',N,'| LIVE UNCHANGED');let bs=stats(run(base));console.log('BASE',F(bs));
-let rows=[];const stops=[8,10,12,14,16,18],adxCuts=[0,15,18,21,24],ahi=[1.15,1.3,1.5,99],body=[0,.3,.4,.5],mom=[-9999,-35,-20,0];
+let rows=[];const stops=[10,12,14,16],adxCuts=[0,18,24],ahi=[1.15,1.30,99],body=[0,.4,.5],mom=[-9999,-20];
 for(const bsl of stops)for(const ssl of stops)for(const ba of adxCuts)for(const sa of adxCuts)for(const bh of ahi)for(const sh of ahi)for(const bb of body)for(const sb of body)for(const mm of mom){let p={bs:bsl,ss:ssl,block:{BUY:new Set([8]),SELL:new Set()},adx:{BUY:ba,SELL:sa},atrLo:{BUY:0,SELL:0},atrHi:{BUY:bh,SELL:sh},body:{BUY:bb,SELL:sb},mom:mm},s=stats(run(p));if(s.n>=500&&s.net>0&&s.pf>=1.10)rows.push({p,s})}
 rows.sort((a,b)=>(b.s.net-b.s.dd*1.5)-(a.s.net-a.s.dd*1.5));let top=rows.slice(0,20);
 console.log('\n🏆 STAGE 1 — STOP + QUALITY');top.forEach((x,i)=>console.log(`${i+1}| BS${x.p.bs} SS${x.p.ss} ADX${x.p.adx.BUY}/${x.p.adx.SELL} ATR<=${x.p.atrHi.BUY}/${x.p.atrHi.SELL} BODY${x.p.body.BUY}/${x.p.body.SELL} MOM${x.p.mom} | ${F(x.s)}`));
