@@ -33,6 +33,7 @@ async function scan(){
  else if(R[i-1]<=CONFIG.sellEntryRsi&&R[i]>CONFIG.sellEntryRsi&&bias==='SELL')side='SELL';
  if(!side)return wait('PRO_WAIT',{rsi5:R[i],dailyBias:bias});
  const signalHour=new Date(c[i].timestamp).getUTCHours(),signalDay=new Date(c[i].timestamp).getUTCDay();
+ if(signalHour===1||signalHour===6||signalHour===8||(signalHour>=14&&signalHour<=19))return wait('PRO_BLOCKED_LOSS_HOURS_UTC',{signalHour});
  if(side==='BUY'&&signalHour===8)return wait('PRO_BLOCKED_08UTC_BUY');
  if(signalDay===3&&signalHour>=17&&signalHour<=20)return wait('PRO_BLOCKED_WED_17_20UTC');
  const priorAtr=ATR.slice(i-50,i).filter(Number.isFinite),atrAvg=priorAtr.length===50?priorAtr.reduce((a,b)=>a+b,0)/50:null;
