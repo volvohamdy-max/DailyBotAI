@@ -40,8 +40,8 @@ async function scan(){
  const atrRatio=Number.isFinite(ATR[i])&&atrAvg>0?ATR[i]/atrAvg:null,range=+c[i].high-+c[i].low,bodyRatio=range>0?Math.abs(+c[i].close-+c[i].open)/range:0;
  const momentum3h=i>=36&&Number.isFinite(ATR[i])&&ATR[i]>0?(+c[i].close-+c[i-36].close)/ATR[i]:null;
  if(atrRatio===null)return wait('PRO_FILTERS_NOT_READY');
- if(side==='BUY'&&(ADX[i]<17||atrRatio<0.50||atrRatio>1.30||bodyRatio<0.50||momentum3h===null||momentum3h< -35))return wait('PRO_BUY_FILTER_BLOCK',{adx5:ADX[i],atrRatio,bodyRatio,momentum3h});
- if(side==='SELL'&&(ADX[i]<15||atrRatio<0.70||atrRatio>1.40||bodyRatio<0.45))return wait('PRO_SELL_FILTER_BLOCK',{adx5:ADX[i],atrRatio,bodyRatio});
+ if(side==='BUY'&&(ADX[i]<20||atrRatio<0.50||atrRatio>1.30||bodyRatio<0.50||momentum3h===null||momentum3h< -35))return wait('PRO_BUY_FILTER_BLOCK',{adx5:ADX[i],atrRatio,bodyRatio,momentum3h});
+ if(side==='SELL'&&(ADX[i]<18||atrRatio<0.70||atrRatio>1.40||bodyRatio<0.45))return wait('PRO_SELL_FILTER_BLOCK',{adx5:ADX[i],atrRatio,bodyRatio});
  const entry=finite(live);if(entry===null)return wait('PRO_PRICE_NOT_READY');
  const risk=side==='BUY'?CONFIG.buyStopDistance:CONFIG.sellStopDistance;
  const stopLoss=side==='BUY'?entry-risk:entry+risk;
