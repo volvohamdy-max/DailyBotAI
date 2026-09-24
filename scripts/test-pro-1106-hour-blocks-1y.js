@@ -28,22 +28,16 @@ for(let i=60;i<M.length-1;i++){
   continue;
  }
  if(b.t<cool||(loss[day]||0)>=C.maxLossesPerDay||!Number.isFinite(R[i])||!Number.isFinite(R[i-1]))continue;
- const B=bias.get(day),h=new Date(b.t).getUTCHours();
- // User-requested Pro entry blocks (UTC): 23:00-05:59 and 15:00-16:59.
- if(h>=23||h<6||(h>=15&&h<17))continue;
- let side=null;
+ const B=bias.get(day),h=new Date(b.t).getUTCHours(); if(h>=23||h<6||(h>=15&&h<17))continue; let side=null;
  if(R[i-1]>=C.buyLevel&&R[i]<C.buyLevel&&B==='BUY'&&h!==8)side='BUY';
  else if(R[i-1]<=C.sellLevel&&R[i]>C.sellLevel&&B==='SELL')side='SELL';
  if(side)open={side,en:M[i+1].o};
 }
 function stats(a){if(!a.length)return'T0';let w=a.filter(x=>x.r>0),l=a.filter(x=>x.r<0),gp=w.reduce((s,x)=>s+x.r,0),gl=-l.reduce((s,x)=>s+x.r,0),net=a.reduce((s,x)=>s+x.r,0),eq=0,pk=0,dd=0,ls=0,ml=0;for(const x of a){eq+=x.r;pk=Math.max(pk,eq);dd=Math.max(dd,pk-eq);if(x.r<0){ls++;ml=Math.max(ml,ls)}else ls=0}return `T${a.length} WR${(100*w.length/a.length).toFixed(1)}% PF${gl?(gp/gl).toFixed(2):'∞'} Net${net>=0?'+':''}${net.toFixed(2)}R DD${dd.toFixed(2)}R LS${ml}`}
-console.log('
-🧪 PRO 1106 — USER HOUR BLOCK TEST — 1 YEAR');
+console.log('\nPRO 1106 HOUR BLOCK TEST - 1 YEAR');
 console.log('DATA:',file,'| M5:',M.length);
-console.log('TEST: BASE + BLOCK 23:00-05:59 UTC + BLOCK 15:00-16:59 UTC (existing BUY 08 block retained)');
+console.log('TEST: BLOCK 23-05:59 UTC + 15-16:59 UTC; existing BUY 08 block retained');
 console.log('EXPECTED FROM LAST TEST: T1106 WR66.3 PF1.12 Net+41.96R DD18.34R LS8');
-console.log('
-ALL :',stats(trades));
+console.log('\nALL :',stats(trades));
 console.log('BUY :',stats(trades.filter(x=>x.side==='BUY')));
-console.log('SELL:',stats(trades.filter(x=>x.side==='SELL')),'
-');
+console.log('SELL:',stats(trades.filter(x=>x.side==='SELL')),'\n');
