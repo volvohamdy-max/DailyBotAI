@@ -63,3 +63,43 @@ for(const side of ['BUY','SELL']){const base=gp(side,52,44,.04,1.25,22,.30);cons
  console.log('TOP 25 '+side+' BY NET R');
  z.forEach((s,k)=>console.log(`${String(k+1).padStart(2)} | RSI ${side==='BUY'?'>':'<'}${s.r} GAP>=${s.gap.toFixed(2)} VOL>=${s.vol.toFixed(2)} ADX>=${s.adx} DIST>=${s.dist.toFixed(2)} | ${gf(s)} | H1 ${gf(s.f)} | H2 ${gf(s.z)}`));
 }
+
+
+function gmonth(a){const m=new Map();for(const x of a){const k=new Date(x.t).toISOString().slice(0,7);if(!m.has(k))m.set(k,[]);m.get(k).push(x)}return m}
+const TESTS={
+ BUY:[
+  ['LIVE',52,.04,1.25,22,.30],
+  ['GAP_ONLY',52,.02,1.25,22,.30],
+  ['ADX_ONLY',52,.04,1.25,20,.30],
+  ['DIST_ONLY',52,.04,1.25,22,.40],
+  ['GAP+ADX',52,.02,1.25,20,.30],
+  ['GAP+DIST',52,.02,1.25,22,.40],
+  ['ADX+DIST',52,.04,1.25,20,.40],
+  ['CANDIDATE',52,.02,1.25,20,.40]
+ ],
+ SELL:[
+  ['LIVE',44,.04,1.25,22,.30],
+  ['RSI_ONLY',48,.04,1.25,22,.30],
+  ['GAP_ONLY',44,.02,1.25,22,.30],
+  ['VOL_ONLY',44,.04,1.00,22,.30],
+  ['ADX_ONLY',44,.04,1.25,18,.30],
+  ['DIST_ONLY',44,.04,1.25,22,.15],
+  ['RSI+GAP',48,.02,1.25,22,.30],
+  ['RSI+VOL',48,.04,1.00,22,.30],
+  ['RSI+ADX',48,.04,1.25,18,.30],
+  ['GAP+VOL',44,.02,1.00,22,.30],
+  ['VOL+ADX',44,.04,1.00,18,.30],
+  ['CONSERVATIVE',48,.02,1.00,22,.15],
+  ['MAX_NET',48,.02,1.00,18,.15]
+ ]
+};
+console.log('\nGROK92 — FINAL ABLATION + MONTHLY (research only; live unchanged)');
+for(const side of ['BUY','SELL']){
+ console.log('\n'+side+' ABLATION');
+ const rows=[];
+ for(const q of TESTS[side]){const [name,r,gap,vol,adx,dist]=q,a=gp(side,r,r,gap,vol,adx,dist),s=stat(a),f=stat(a.filter(x=>x.t<=gmid)),z=stat(a.filter(x=>x.t>gmid));rows.push({name,a});console.log(name.padEnd(14)+' | '+gf(s)+' | H1 '+gf(f)+' | H2 '+gf(z))}
+ console.log('\n'+side+' MONTHLY — LIVE vs final candidates');
+ const keep=rows.filter(x=>side==='BUY'?['LIVE','CANDIDATE'].includes(x.name):['LIVE','CONSERVATIVE','MAX_NET'].includes(x.name));
+ const months=[...new Set(keep.flatMap(x=>[...gmonth(x.a).keys()]))].sort();
+ for(const m of months){console.log(m);for(const x of keep)console.log('  '+x.name.padEnd(12)+' '+gf(stat(gmonth(x.a).get(m)||[])))}
+}
