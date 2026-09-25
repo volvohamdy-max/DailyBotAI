@@ -45,7 +45,8 @@ for(let i=60;i<M.length-1;i++){
 }
 function stats(a){if(!a.length)return'T0';let w=a.filter(x=>x.r>0),l=a.filter(x=>x.r<0),gp=w.reduce((s,x)=>s+x.r,0),gl=-l.reduce((s,x)=>s+x.r,0),net=a.reduce((s,x)=>s+x.r,0),eq=0,pk=0,dd=0,ls=0,ml=0;for(const x of a){eq+=x.r;pk=Math.max(pk,eq);dd=Math.max(dd,pk-eq);if(x.r<0){ls++;ml=Math.max(ml,ls)}else ls=0}return `T${a.length} WR${(100*w.length/a.length).toFixed(1)}% PF${gl?(gp/gl).toFixed(2):'∞'} Net${net>=0?'+':''}${net.toFixed(2)}R DD${dd.toFixed(2)}R LS${ml}`}
 console.log('\nPRO CURRENT LIVE - EXNESS M5 + DUKASCOPY D1 EMA50 BIAS');
-console.log('DATA:',file,'| M5:',M.length);\nconsole.log('D1 BIAS SOURCE:',dukaFile,'| D1:',D.length);
+console.log('DATA:',file,'| M5:',M.length);
+console.log('D1 BIAS SOURCE:',dukaFile,'| D1:',D.length);
 console.log('FILTERS: ADX TEST BUY20 SELL18 | ATR BUY .50-1.30 SELL .75-1.30 | BODY TEST BUY .55 SELL .45 | BUY MOM3H TEST >= -25 | BUY BLOCK08 | WED 17-20 UTC BLOCK');
 console.log('CURRENT LIVE: ADX BUY20 SELL18 | ATR BUY .50-1.30 SELL .75-1.30 | BODY BUY .55 SELL .45 | BUY MOM3H >= -25 | LOSS-HOUR BLOCKS');
 console.log('\nALL :',stats(trades));
