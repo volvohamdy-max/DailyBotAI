@@ -43,7 +43,7 @@ const mid=FROM.getTime()+Math.floor((TO.getTime()-FROM.getTime())/2),hours=[0,2,
 console.log('\nEXHAUSTION V3 — CORE FILTER OPTIMIZER (research only; live unchanged)');
 for(const side of ['BUY','SELL']){
  const live={hours,burst:side==='BUY'?2.2:2.6,body:side==='BUY'?.50:.55,adx:side==='BUY'?32:28,wick:.30,retrace:.15};
- const ba=pick(side,live);console.log('\n'+side+' LIVE BASE | '+ef(stat(ba))+' | H1 '+ef(stat(ba.filter(x=>x.t<=mid)))+' | H2 '+ef(stat(ba.filter(x=>x.t>mid)));
+ const ba=pick(side,live);console.log('\n'+side+' LIVE BASE | '+ef(stat(ba))+' | H1 '+ef(stat(ba.filter(x=>x.t<=mid)))+' | H2 '+ef(stat(ba.filter(x=>x.t>mid))));
  const rows=[];
  for(const burst of (side==='BUY'?[1.8,2.0,2.2,2.4,2.6]:[2.0,2.2,2.4,2.6,2.8]))
  for(const body of [.40,.45,.50,.55,.60])
