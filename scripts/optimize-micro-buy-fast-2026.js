@@ -63,7 +63,8 @@ for(const v of [19,20,21,22,23,24,25])optStat('H10 OFF + ADX>='+v,x=>x.meta?.hou
 
 console.log('\nMICRO BUY — FAST OPTIMIZER (post-filter on live candidates; research only)');
 const mb=MI.filter(x=>x.side==='BUY');
-const microFmt=s=>`T${s.t} WR${s.wr.toFixed(1)} PF${s.pf.toFixed(2)} N${s.n>=0?'+':''}${s.n.toFixed(2)}R DD${s.dd.toFixed(2)}`;\nconsole.log('BASE',microFmt(stat(mb)));
+const microFmt=s=>`T${s.t} WR${s.wr.toFixed(1)} PF${s.pf.toFixed(2)} N${s.n>=0?'+':''}${s.n.toFixed(2)}R DD${s.dd.toFixed(2)}`;
+console.log('BASE',microFmt(stat(mb)));
 console.log('NOTE: first pass targets UTC hours only; core Micro thresholds require candidate-level pre-filter replay, not post-filtering already-qualified trades.');
 for(const h of [...new Set(mb.map(x=>new Date(x.t).getUTCHours()))].sort((a,b)=>a-b)){
  const z=mb.filter(x=>new Date(x.t).getUTCHours()!==h),s=stat(z);
