@@ -72,3 +72,18 @@ console.log('\nBUY MONTHLY — LIVE vs CANDIDATE');
 const la=pick('BUY',buyLive),cp={...buyLive,burst:1.8,adx:24,retrace:.20},ca=pick('BUY',cp);
 const months=[...new Set([...la,...ca].map(x=>new Date(x.t).toISOString().slice(0,7)))].sort();
 for(const m of months){const l=stat(la.filter(x=>new Date(x.t).toISOString().startsWith(m))),v=stat(ca.filter(x=>new Date(x.t).toISOString().startsWith(m)));console.log(m+' | LIVE '+ef(l)+' | CAND '+ef(v))}
+
+console.log('\nEXHAUSTION BUY — FINE GRID (keep trade count)');
+const fine=[];
+for(const burst of [2.0,2.1,2.2])
+for(const adx of [24,25,26,27,28,29,30,31,32])
+for(const retrace of [.15,.175,.20,.225,.25]){
+ const p={hours,burst,body:.50,adx,wick:.30,retrace},a=pick('BUY',p),s=stat(a),h1=stat(a.filter(x=>x.t<=mid)),h2=stat(a.filter(x=>x.t>mid));
+ if(s.t<100||h1.t<40||h2.t<35)continue;
+ fine.push({p,...s,h1,h2});
+}
+fine.sort((a,b)=>{
+ const qa=a.n-(Math.max(0,126-a.t)*.08)-(Math.max(0,a.dd-4.76)*1.5);
+ const qb=b.n-(Math.max(0,126-b.t)*.08)-(Math.max(0,b.dd-4.76)*1.5);
+ return qb-qa||b.pf-a.pf;
+}).slice(0,30).forEach((s,k)=>console.log(`${String(k+1).padStart(2)} | BURST>=${s.p.burst.toFixed(1)} ADX<=${s.p.adx} RET>${s.p.retrace.toFixed(3)} | ${ef(s)} | H1 ${ef(s.h1)} | H2 ${ef(s.h2)}`));
