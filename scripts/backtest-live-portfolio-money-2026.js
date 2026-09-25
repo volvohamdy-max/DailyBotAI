@@ -100,3 +100,28 @@ moneyLine('MAX2 SAME',CP.accepted);
 console.log('\n💵 MONTHLY MONEY — RAW PORTFOLIO');
 for(const [m,a] of monthMap) moneyLine(m,a);
 console.log('\nMoney model uses fixed position size: price movement in XAUUSD × USD_PER_GOLD_DOLLAR. No compounding, spread, commission or slippage added beyond the replay mechanics above.');
+
+function stressStats(trades,start){
+  let bal=start,peak=start,minBal=start,maxDD=0,maxDDPct=0,lossStreak=0,maxLossStreak=0,streakLoss=0,maxStreakLoss=0;
+  let ddStart=null,worstFrom=null,worstTo=null,ruinedAt=null;
+  const ordered=[...trades].sort((a,b)=>(M[a.end]?.t??a.t)-(M[b.end]?.t??b.t));
+  for(const x of ordered){
+    const exitT=M[x.end]?.t??x.t,pnl=x.r*x.risk*USD_PER_GOLD_DOLLAR;
+    if(pnl<0){lossStreak++;streakLoss+=-pnl;if(lossStreak>maxLossStreak)maxLossStreak=lossStreak;if(streakLoss>maxStreakLoss)maxStreakLoss=streakLoss}
+    else {lossStreak=0;streakLoss=0}
+    bal+=pnl;
+    if(bal>peak){peak=bal;ddStart=exitT}
+    const dd=peak-bal,ddPct=peak>0?100*dd/peak:0;
+    if(dd>maxDD){maxDD=dd;maxDDPct=ddPct;worstFrom=ddStart;worstTo=exitT}
+    minBal=Math.min(minBal,bal);
+    if(ruinedAt===null&&bal<=0)ruinedAt=exitT;
+  }
+  return{start,final:bal,minBal,maxDD,maxDDPct,maxLossStreak,maxStreakLoss,ruinedAt,worstFrom,worstTo};
+}
+console.log('\n🔥 STRESS TEST — FIXED POSITION SIZE');
+for(const start of [50,75,100,150,200]){
+ const z=stressStats(all,start),fmt=t=>t?new Date(t).toISOString():'—';
+ console.log(`START ${start.toFixed(2)} | Final ${z.final.toFixed(2)} | Min ${z.minBal.toFixed(2)} | MaxDD ${z.maxDD.toFixed(2)} (${z.maxDDPct.toFixed(1)}% from peak) | Max loss streak ${z.maxLossStreak} | Worst streak -${z.maxStreakLoss.toFixed(2)} | Ruin ${z.ruinedAt?fmt(z.ruinedAt):'NO'}`);
+ if(start===100) console.log(`$100 worst DD window | ${fmt(z.worstFrom)} -> ${fmt(z.worstTo)}`);
+}
+console.log('Stress test assumes the same fixed trade size remains executable even at low balances; it does not model broker margin/stop-out rules.');
