@@ -61,3 +61,17 @@ for(const sep of SEP)for(const imp of IMP)for(const body of BODY){const a=MC.fil
 out.sort((a,b)=>b.n-a.n||b.pf-a.pf||a.dd-b.dd);
 console.log('TOP 25 BY NET R (min 50 trades)');
 out.slice(0,25).forEach((s,k)=>console.log(`${String(k+1).padStart(2)} | SEP>=${s.sep.toFixed(2)} IMP>=${s.imp.toFixed(2)} BODY>=${s.body.toFixed(2)} | ${mf(s)}`));
+
+const SETS=[
+ ['BASE',.15,1.40,.75],
+ ['BALANCED',.12,1.20,.65],
+ ['MAX_NET',.10,1.20,.60],
+ ['STRICT_SEP',.20,1.20,.65]
+];
+function pick(set,from,to){const [,sep,imp,body]=set;return MC.filter(x=>x.t>=from&&x.t<=to&&x.meta.sep>=sep&&x.meta.imp>=imp&&x.meta.body>=body)}
+const lo=FROM.getTime(),hi=TO.getTime(),mid=lo+Math.floor((hi-lo)/2);
+console.log('\nMICRO BUY — 4-CANDIDATE HALF SPLIT');
+for(const set of SETS){console.log(set[0].padEnd(12),'FIRST',mf(stat(pick(set,lo,mid))),'| SECOND',mf(stat(pick(set,mid+1,hi))))}
+console.log('\nMICRO BUY — MONTHLY VALIDATION');
+let d=new Date(Date.UTC(new Date(lo).getUTCFullYear(),new Date(lo).getUTCMonth(),1));
+while(d.getTime()<=hi){const ms=d.getTime(),n=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,1)),me=Math.min(hi,n.getTime()-1);if(me>=lo){const label=d.toISOString().slice(0,7);console.log('\n'+label);for(const set of SETS)console.log(' '+set[0].padEnd(12),mf(stat(pick(set,Math.max(lo,ms),me))))}d=n}
