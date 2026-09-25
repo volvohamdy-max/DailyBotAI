@@ -54,3 +54,21 @@ for(const side of ['BUY','SELL']){
  }
  rows.sort((a,b)=>b.n-a.n||b.pf-a.pf||a.dd-b.dd).slice(0,25).forEach((s,k)=>console.log(`${String(k+1).padStart(2)} | BURST>=${s.p.burst.toFixed(1)} BODY<=${s.p.body.toFixed(2)} ADX<=${s.p.adx} WICK>=${s.p.wick.toFixed(2)} RET>${s.p.retrace.toFixed(2)} | ${ef(s)} | H1 ${ef(s.h1)} | H2 ${ef(s.h2)}`));
 }
+
+console.log('\nEXHAUSTION BUY — CANDIDATE #17 VALIDATION');
+const buyLive={hours,burst:2.2,body:.50,adx:32,wick:.30,retrace:.15};
+const variants=[
+ ['LIVE',buyLive],
+ ['BURST_ONLY',{...buyLive,burst:1.8}],
+ ['ADX_ONLY',{...buyLive,adx:24}],
+ ['RETRACE_ONLY',{...buyLive,retrace:.20}],
+ ['BURST+ADX',{...buyLive,burst:1.8,adx:24}],
+ ['BURST+RETRACE',{...buyLive,burst:1.8,retrace:.20}],
+ ['ADX+RETRACE',{...buyLive,adx:24,retrace:.20}],
+ ['CANDIDATE',{...buyLive,burst:1.8,adx:24,retrace:.20}]
+];
+for(const [name,p] of variants){const a=pick('BUY',p);console.log(name.padEnd(15)+' | '+ef(stat(a))+' | H1 '+ef(stat(a.filter(x=>x.t<=mid)))+' | H2 '+ef(stat(a.filter(x=>x.t>mid))))}
+console.log('\nBUY MONTHLY — LIVE vs CANDIDATE');
+const la=pick('BUY',buyLive),cp={...buyLive,burst:1.8,adx:24,retrace:.20},ca=pick('BUY',cp);
+const months=[...new Set([...la,...ca].map(x=>new Date(x.t).toISOString().slice(0,7)))].sort();
+for(const m of months){const l=stat(la.filter(x=>new Date(x.t).toISOString().startsWith(m))),v=stat(ca.filter(x=>new Date(x.t).toISOString().startsWith(m)));console.log(m+' | LIVE '+ef(l)+' | CAND '+ef(v))}
