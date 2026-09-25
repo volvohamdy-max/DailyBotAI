@@ -51,5 +51,25 @@ console.log('\n📦 PORTFOLIO — ALL CURRENT LIVE STRATEGIES');
 console.log(`ALL | T${PS.t} WR${PS.wr.toFixed(1)} PF${PS.pf.toFixed(2)} N${PS.n>=0?'+':''}${PS.n.toFixed(2)}R DD${PS.dd.toFixed(2)}R | Max concurrent ${PS.maxOpen}`);
 console.log(`H1  | T${P1.t} WR${P1.wr.toFixed(1)} PF${P1.pf.toFixed(2)} N${P1.n>=0?'+':''}${P1.n.toFixed(2)}R DD${P1.dd.toFixed(2)}R | Max concurrent ${P1.maxOpen}`);
 console.log(`H2  | T${P2.t} WR${P2.wr.toFixed(1)} PF${P2.pf.toFixed(2)} N${P2.n>=0?'+':''}${P2.n.toFixed(2)}R DD${P2.dd.toFixed(2)}R | Max concurrent ${P2.maxOpen}`);
-const monthMap=new Map;for(const x of all){const m=new Date(x.t).toISOString().slice(0,7);if(!monthMap.has(m))monthMap.set(m,[]);monthMap.get(m).push(x)}console.log('\nMONTHLY PORTFOLIO');for(const [m,a] of monthMap){const s=portfolioStats(a);console.log(`${m} | T${s.t} WR${s.wr.toFixed(1)} PF${s.pf.toFixed(2)} N${s.n>=0?'+':''}${s.n.toFixed(2)}R DD${s.dd.toFixed(2)}R | MaxOpen ${s.maxOpen}`)}
+const monthMap=new Map;for(const x of all){const m=new Date(x.t).toISOString().slice(0,7);if(!monthMap.has(m))monthMap.set(m,[]);monthMap.get(m).push(x)}
+function constrainedPortfolio(trades){
+ const accepted=[],blocked={max2:0,opposite:0};let open=[];
+ for(const x of [...trades].sort((a,b)=>a.t-b.t)){
+   open=open.filter(o=>(M[o.end]?.t??o.t)>x.t);
+   if(open.length>=2){blocked.max2++;continue}
+   if(open.length&&open.some(o=>o.side!==x.side)){blocked.opposite++;continue}
+   accepted.push(x);open.push(x);
+ }
+ return {accepted,blocked};
+}
+const CP=constrainedPortfolio(all),CS=portfolioStats(CP.accepted),C1=portfolioStats(CP.accepted.filter(x=>x.t<=mid)),C2=portfolioStats(CP.accepted.filter(x=>x.t>mid));
+console.log('\n🛡️ CONSTRAINED PORTFOLIO — MAX 2 OPEN / SAME DIRECTION ONLY');
+console.log(`ALL | T${CS.t} WR${CS.wr.toFixed(1)} PF${CS.pf.toFixed(2)} N${CS.n>=0?'+':''}${CS.n.toFixed(2)}R DD${CS.dd.toFixed(2)}R | Max concurrent ${CS.maxOpen} | Blocked max2=${CP.blocked.max2} opposite=${CP.blocked.opposite}`);
+console.log(`H1  | T${C1.t} WR${C1.wr.toFixed(1)} PF${C1.pf.toFixed(2)} N${C1.n>=0?'+':''}${C1.n.toFixed(2)}R DD${C1.dd.toFixed(2)}R`);
+console.log(`H2  | T${C2.t} WR${C2.wr.toFixed(1)} PF${C2.pf.toFixed(2)} N${C2.n>=0?'+':''}${C2.n.toFixed(2)}R DD${C2.dd.toFixed(2)}R`);
+console.log('\nCONSTRAINED MONTHLY');
+const cm=new Map;for(const x of CP.accepted){const m=new Date(x.t).toISOString().slice(0,7);if(!cm.has(m))cm.set(m,[]);cm.get(m).push(x)}
+for(const [m,a] of cm){const s=portfolioStats(a);console.log(`${m} | T${s.t} WR${s.wr.toFixed(1)} PF${s.pf.toFixed(2)} N${s.n>=0?'+':''}${s.n.toFixed(2)}R DD${s.dd.toFixed(2)}R | MaxOpen ${s.maxOpen}`)}
+
+console.log('\nMONTHLY PORTFOLIO');for(const [m,a] of monthMap){const s=portfolioStats(a);console.log(`${m} | T${s.t} WR${s.wr.toFixed(1)} PF${s.pf.toFixed(2)} N${s.n>=0?'+':''}${s.n.toFixed(2)}R DD${s.dd.toFixed(2)}R | MaxOpen ${s.maxOpen}`)}
 console.log('NOTE: portfolio keeps overlapping strategy trades; P/L is summed in R and equity is booked at each trade exit. Historical next-M5-open proxies live getPrice(); same-bar SL+TP => SL first.');
