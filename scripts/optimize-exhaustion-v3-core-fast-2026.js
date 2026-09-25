@@ -110,3 +110,9 @@ for(const retrace of [.15,.175,.20,.225,.25]){
  robust.push({p,...s,h1,h2,better,worse,tie,deltaSum,worstDelta});
 }
 robust.sort((a,b)=>(b.better-b.worse)-(a.better-a.worse)||b.n-a.n||b.pf-a.pf||a.dd-b.dd).slice(0,30).forEach((s,k)=>console.log(`${String(k+1).padStart(2)} | B${s.p.burst.toFixed(2)} A${s.p.adx} R${s.p.retrace.toFixed(3)} | ${ef(s)} | H1 ${ef(s.h1)} | H2 ${ef(s.h2)} | M +${s.better}/-${s.worse}/=${s.tie} | worst ${s.worstDelta>=0?'+':''}${s.worstDelta.toFixed(2)}R`));
+
+console.log('\nEXHAUSTION BUY #1 — FINAL EXACT REPLAY CHECK');
+const finalP={hours,burst:2.15,body:.50,adx:31,wick:.30,retrace:.175},finalA=pick('BUY',finalP),finalS=stat(finalA),liveS=stat(la);
+console.log('LIVE  | '+ef(liveS)+' | H1 '+ef(stat(la.filter(x=>x.t<=mid)))+' | H2 '+ef(stat(la.filter(x=>x.t>mid))));
+console.log('FINAL | '+ef(finalS)+' | H1 '+ef(stat(finalA.filter(x=>x.t<=mid)))+' | H2 '+ef(stat(finalA.filter(x=>x.t>mid))));
+console.log('DELTA | Trades '+(finalS.t-liveS.t>=0?'+':'')+(finalS.t-liveS.t)+' | WR '+(finalS.wr-liveS.wr>=0?'+':'')+(finalS.wr-liveS.wr).toFixed(1)+'pp | PF '+(finalS.pf-liveS.pf>=0?'+':'')+(finalS.pf-liveS.pf).toFixed(2)+' | Net '+(finalS.n-liveS.n>=0?'+':'')+(finalS.n-liveS.n).toFixed(2)+'R | DD '+(finalS.dd-liveS.dd>=0?'+':'')+(finalS.dd-liveS.dd).toFixed(2)+'R');
