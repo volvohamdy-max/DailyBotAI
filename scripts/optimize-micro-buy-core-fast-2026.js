@@ -90,3 +90,10 @@ console.log('\nMICRO BUY — FINAL ABLATION (candidate replay; live unchanged)')
 for(const set of ABL){const a=pick(set,lo,hi),s=stat(a);console.log(set[0].padEnd(12),mf(s),`| ΔR ${(s.n-stat(live).n)>=0?'+':''}${(s.n-stat(live).n).toFixed(2)} | ΔT ${s.t-stat(live).t>=0?'+':''}${s.t-stat(live).t}`)}
 console.log('\nMICRO BUY — ABLATION HALF SPLIT');
 for(const set of ABL)console.log(set[0].padEnd(12),'FIRST',mf(stat(pick(set,lo,mid))),'| SECOND',mf(stat(pick(set,mid+1,hi))));
+
+const FINE_IMP=[1.20,1.25,1.30,1.35],FINE_BODY=[.65,.68,.70,.72];
+console.log('\nMICRO BUY — FINE GRID (SEP fixed 0.15; live unchanged)');
+const fine=[];
+for(const imp of FINE_IMP)for(const body of FINE_BODY){const set=['FINE',.15,imp,body],a=pick(set,lo,hi),s=stat(a),f=stat(pick(set,lo,mid)),z=stat(pick(set,mid+1,hi));fine.push({imp,body,...s,f,z})}
+fine.sort((a,b)=>b.n-a.n||b.pf-a.pf||a.dd-b.dd);
+for(const s of fine)console.log(`IMP>=${s.imp.toFixed(2)} BODY>=${s.body.toFixed(2)} | ${mf(s)} | H1 ${mf(s.f)} | H2 ${mf(s.z)}`);
