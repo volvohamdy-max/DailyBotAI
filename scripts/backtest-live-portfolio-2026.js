@@ -7,9 +7,10 @@
  */
 const fs=require('fs'),path=require('path');
 const DAY=86400000,N=Number;
-const FROM=new Date(process.env.BACKTEST_FROM||Date.now()-365*DAY),TO=new Date(process.env.BACKTEST_TO||Date.now());
+const YEAR=process.env.BACKTEST_YEAR?Number(process.env.BACKTEST_YEAR):null;
+const FROM=new Date(process.env.BACKTEST_FROM||(YEAR?`${YEAR}-01-01T00:00:00Z`:Date.now()-365*DAY)),TO=new Date(process.env.BACKTEST_TO||(YEAR?`${YEAR}-12-31T23:59:59.999Z`:Date.now()));
 function norm(raw){let a=(raw||[]).map(x=>({t:N(x.timestamp??x.time??x.date),o:N(x.open??x.o),h:N(x.high??x.h),l:N(x.low??x.l),c:N(x.close??x.c),v:N(x.volume??x.v??0)})).filter(x=>[x.t,x.o,x.h,x.l,x.c].every(Number.isFinite)).sort((a,b)=>a.t-b.t);if(a[0]?.t<1e12)a.forEach(x=>x.t*=1000);return a}
-function load(){for(const f of ['xauusd-m5-dukascopy.json','xauusd-m5.json']){const p=path.join(__dirname,'../data',f);if(fs.existsSync(p)){const z=JSON.parse(fs.readFileSync(p,'utf8')),a=norm(Array.isArray(z)?z:z.candles||z.data||z.values||[]);if(a.length>1000)return{a,p}}}throw Error('Local XAUUSD M5 JSON not found')}
+function load(){const requested=process.env.BACKTEST_FILE?[process.env.BACKTEST_FILE]:[];for(const f of [...requested,'xauusd-m5-dukascopy.json','xauusd-m5.json']){const p=path.join(__dirname,'../data',f);if(fs.existsSync(p)){const z=JSON.parse(fs.readFileSync(p,'utf8')),a=norm(Array.isArray(z)?z:z.candles||z.data||z.values||[]);if(a.length>1000)return{a,p}}}throw Error('Local XAUUSD M5 JSON not found')}
 function ema(v,p){const o=Array(v.length).fill(NaN),k=2/(p+1);let e=v[0];for(let i=0;i<v.length;i++){if(i)e=v[i]*k+e*(1-k);if(i>=p-1)o[i]=e}return o}
 function emaAll(v,p){const o=Array(v.length).fill(NaN),k=2/(p+1);let e=v[0];for(let i=0;i<v.length;i++){if(i)e=v[i]*k+e*(1-k);o[i]=e}return o}
 function rsi(v,p=14){const o=Array(v.length).fill(NaN);let ag,al;for(let i=1;i<v.length;i++){const d=v[i]-v[i-1],g=Math.max(d,0),l=Math.max(-d,0);if(i===p){let gs=0,ls=0;for(let j=1;j<=p;j++){const x=v[j]-v[j-1];gs+=Math.max(x,0);ls+=Math.max(-x,0)}ag=gs/p;al=ls/p}else if(i>p){ag=(ag*(p-1)+g)/p;al=(al*(p-1)+l)/p}if(i>=p)o[i]=al===0?100:100-100/(1+ag/al)}return o}
@@ -72,4 +73,6 @@ const cm=new Map;for(const x of CP.accepted){const m=new Date(x.t).toISOString()
 for(const [m,a] of cm){const s=portfolioStats(a);console.log(`${m} | T${s.t} WR${s.wr.toFixed(1)} PF${s.pf.toFixed(2)} N${s.n>=0?'+':''}${s.n.toFixed(2)}R DD${s.dd.toFixed(2)}R | MaxOpen ${s.maxOpen}`)}
 
 console.log('\nMONTHLY PORTFOLIO');for(const [m,a] of monthMap){const s=portfolioStats(a);console.log(`${m} | T${s.t} WR${s.wr.toFixed(1)} PF${s.pf.toFixed(2)} N${s.n>=0?'+':''}${s.n.toFixed(2)}R DD${s.dd.toFixed(2)}R | MaxOpen ${s.maxOpen}`)}
+const ys=portfolioStats(all),wins=[...monthMap.values()].filter(a=>portfolioStats(a).n>0.000001).length,losses=[...monthMap.values()].filter(a=>portfolioStats(a).n< -0.000001).length,flat=monthMap.size-wins-losses;
+console.log(`\nYEAR SUMMARY | ${YEAR||'WINDOW'} | Months WIN ${wins} / LOSS ${losses} / FLAT ${flat} | T${ys.t} PF${ys.pf.toFixed(2)} N${ys.n>=0?'+':''}${ys.n.toFixed(2)}R DD${ys.dd.toFixed(2)}R`);
 console.log('NOTE: portfolio keeps overlapping strategy trades; P/L is summed in R and equity is booked at each trade exit. Historical next-M5-open proxies live getPrice(); same-bar SL+TP => SL first.');
