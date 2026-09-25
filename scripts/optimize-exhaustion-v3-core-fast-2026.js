@@ -87,3 +87,12 @@ fine.sort((a,b)=>{
  const qb=b.n-(Math.max(0,126-b.t)*.08)-(Math.max(0,b.dd-4.76)*1.5);
  return qb-qa||b.pf-a.pf;
 }).slice(0,30).forEach((s,k)=>console.log(`${String(k+1).padStart(2)} | BURST>=${s.p.burst.toFixed(1)} ADX<=${s.p.adx} RET>${s.p.retrace.toFixed(3)} | ${ef(s)} | H1 ${ef(s.h1)} | H2 ${ef(s.h2)}`));
+
+console.log('\nEXHAUSTION BUY #28 — FINAL MONTHLY VALIDATION');
+const p28={hours,burst:2.0,body:.50,adx:26,wick:.30,retrace:.25},a28=pick('BUY',p28);
+console.log('LIVE | '+ef(stat(la))+' | H1 '+ef(stat(la.filter(x=>x.t<=mid)))+' | H2 '+ef(stat(la.filter(x=>x.t>mid))));
+console.log('#28  | '+ef(stat(a28))+' | H1 '+ef(stat(a28.filter(x=>x.t<=mid)))+' | H2 '+ef(stat(a28.filter(x=>x.t>mid))));
+const m28=[...new Set([...la,...a28].map(x=>new Date(x.t).toISOString().slice(0,7)))].sort();
+let better=0,worse=0,tie=0;
+for(const m of m28){const l=stat(la.filter(x=>new Date(x.t).toISOString().startsWith(m))),v=stat(a28.filter(x=>new Date(x.t).toISOString().startsWith(m)));const d=v.n-l.n;if(d>.01)better++;else if(d<-.01)worse++;else tie++;console.log(m+' | LIVE '+ef(l)+' | #28 '+ef(v)+' | DELTA '+(d>=0?'+':'')+d.toFixed(2)+'R')}
+console.log('MONTHS | BETTER '+better+' | WORSE '+worse+' | TIE '+tie);
