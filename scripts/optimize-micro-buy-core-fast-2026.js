@@ -97,3 +97,16 @@ const fine=[];
 for(const imp of FINE_IMP)for(const body of FINE_BODY){const set=['FINE',.15,imp,body],a=pick(set,lo,hi),s=stat(a),f=stat(pick(set,lo,mid)),z=stat(pick(set,mid+1,hi));fine.push({imp,body,...s,f,z})}
 fine.sort((a,b)=>b.n-a.n||b.pf-a.pf||a.dd-b.dd);
 for(const s of fine)console.log(`IMP>=${s.imp.toFixed(2)} BODY>=${s.body.toFixed(2)} | ${mf(s)} | H1 ${mf(s.f)} | H2 ${mf(s.z)}`);
+
+const ALLC=[];
+for(let i=260;i<M.length-20;i++){const b=M[i],hr=new Date(b.t).getUTCHours(),entry=M[i+1]?.o;if(!Number.isFinite(entry)||b.t<FROM.getTime()||b.t>TO.getTime()||!(A[i]>0))continue;const rg=b.h-b.l;if(!(rg>0)||!(E9A[i]>E21A[i]&&E21A[i]>E50A[i]&&E21A[i]>E21A[i-3]))continue;const is=i-4,ie=i-2,imp=M[ie].c-M[is].o;if(!(imp>0))continue;let pl=Infinity;for(let j=ie+1;j<i;j++)pl=Math.min(pl,M[j].l);const meta={sep:Math.abs(E9A[i]-E21A[i])/A[i],imp:imp/A[i],body:Math.abs(b.c-b.o)/rg,retr:(M[ie].c-pl)/imp,pos:(b.c-b.l)/rg,breakout:b.c>M[i-1].h,hour:hr};const risk=2*A[i],x=exitFixed(M,i,'BUY',entry,entry-risk,entry+risk,10);x.meta=meta;push(ALLC,i,'BUY',x,b.t)}
+const PMIN=[.05,.08,.10,.12,.15,.18],PMAX=[.25,.30,.35,.40,.45,.50],POS=[.70,.74,.78,.82,.85],EXTRA_H=[3,5,6,8,9];
+function fullPick(pmin,pmax,pos,block){return ALLC.filter(x=>x.meta.sep>=.15&&x.meta.imp>=1.20&&x.meta.body>=.65&&x.meta.retr>=pmin&&x.meta.retr<=pmax&&x.meta.pos>=pos&&x.meta.breakout&&!block.includes(x.meta.hour))}
+const live2=fullPick(.12,.35,.78,[16,17,20,21]),base2=stat(live2);
+console.log('\nMICRO BUY — ALL REMAINING FILTERS GRID (research only; live unchanged)');
+console.log('CURRENT NEW LIVE | '+mf(base2)+' | PB .12-.35 POS .78 BLOCK 16,17,20,21');
+const allgrid=[];
+for(const mn of PMIN)for(const mx of PMAX){if(mn>=mx)continue;for(const pos of POS){for(const h of [-1,...EXTRA_H]){const block=[16,17,20,21];if(h>=0)block.push(h);const a=fullPick(mn,mx,pos,block);if(a.length<80)continue;const s=stat(a),f=stat(a.filter(x=>x.t<=mid)),z=stat(a.filter(x=>x.t>mid));allgrid.push({mn,mx,pos,h,...s,f,z})}}}
+allgrid.sort((a,b)=>b.n-a.n||b.pf-a.pf||a.dd-b.dd);
+console.log('TOP 30 BY NET R (min 80 trades; Hxx = one additional blocked hour)');
+allgrid.slice(0,30).forEach((s,k)=>console.log(`${String(k+1).padStart(2)} | PB ${s.mn.toFixed(2)}-${s.mx.toFixed(2)} POS>=${s.pos.toFixed(2)} ${s.h<0?'H+NONE':'H+'+String(s.h).padStart(2,'0')} | ${mf(s)} | H1 ${mf(s.f)} | H2 ${mf(s.z)}`));
