@@ -75,3 +75,18 @@ for(const set of SETS){console.log(set[0].padEnd(12),'FIRST',mf(stat(pick(set,lo
 console.log('\nMICRO BUY — MONTHLY VALIDATION');
 let d=new Date(Date.UTC(new Date(lo).getUTCFullYear(),new Date(lo).getUTCMonth(),1));
 while(d.getTime()<=hi){const ms=d.getTime(),n=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,1)),me=Math.min(hi,n.getTime()-1);if(me>=lo){const label=d.toISOString().slice(0,7);console.log('\n'+label);for(const set of SETS)console.log(' '+set[0].padEnd(12),mf(stat(pick(set,Math.max(lo,ms),me))))}d=n}
+
+const ABL=[
+ ['BASE',.15,1.40,.75],
+ ['SEP_ONLY',.12,1.40,.75],
+ ['IMP_ONLY',.15,1.20,.75],
+ ['BODY_ONLY',.15,1.40,.65],
+ ['SEP+IMP',.12,1.20,.75],
+ ['SEP+BODY',.12,1.40,.65],
+ ['IMP+BODY',.15,1.20,.65],
+ ['BALANCED',.12,1.20,.65]
+];
+console.log('\nMICRO BUY — FINAL ABLATION (candidate replay; live unchanged)');
+for(const set of ABL){const a=pick(set,lo,hi),s=stat(a);console.log(set[0].padEnd(12),mf(s),`| ΔR ${(s.n-stat(live).n)>=0?'+':''}${(s.n-stat(live).n).toFixed(2)} | ΔT ${s.t-stat(live).t>=0?'+':''}${s.t-stat(live).t}`)}
+console.log('\nMICRO BUY — ABLATION HALF SPLIT');
+for(const set of ABL)console.log(set[0].padEnd(12),'FIRST',mf(stat(pick(set,lo,mid))),'| SECOND',mf(stat(pick(set,mid+1,hi))));
