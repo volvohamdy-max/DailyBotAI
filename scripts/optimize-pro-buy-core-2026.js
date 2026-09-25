@@ -26,3 +26,12 @@ rows.sort((a,b)=>(b.s.n-a.s.n)||(b.s.pf-a.s.pf)||(a.s.dd-b.s.dd));
 console.log('\nTOP 30 — NET (trade-preserving floor)');rows.slice(0,30).forEach((x,k)=>console.log(`${k+1} | ADX>=${x.q.adx} ATR${x.q.amin}-${x.q.amax} BODY>=${x.q.body} MOM>=${x.q.mom} | ${fmt(x.s)} | H1 ${fmt(x.h1)} | H2 ${fmt(x.h2)}`));
 rows.sort((a,b)=>((b.s.pf*10+b.s.n-b.s.dd)-(a.s.pf*10+a.s.n-a.s.dd)));
 console.log('\nTOP 20 — BALANCED');rows.slice(0,20).forEach((x,k)=>console.log(`${k+1} | ADX>=${x.q.adx} ATR${x.q.amin}-${x.q.amax} BODY>=${x.q.body} MOM>=${x.q.mom} | ${fmt(x.s)} | H1 ${fmt(x.h1)} | H2 ${fmt(x.h2)}`));
+
+console.log('\nPRO BUY — QUALITY / ROBUST SHORTLIST');
+const months=[...new Set(L.map(x=>new Date(x.t).toISOString().slice(0,7)))];
+function monthly(a){return months.map(m=>({m,s:stat(a.filter(x=>new Date(x.t).toISOString().slice(0,7)===m))}))}
+const lm=monthly(L),rob=[];
+for(const x of rows){if(x.s.t<LS.t||x.s.pf<LS.pf||x.s.dd>LS.dd)continue;const cm=monthly(x.a);let better=0,worse=0,tie=0,worst=Infinity;for(let j=0;j<months.length;j++){const d=cm[j].s.n-lm[j].s.n;worst=Math.min(worst,d);if(d>.05)better++;else if(d<-.05)worse++;else tie++}rob.push({...x,better,worse,tie,worst})}
+rob.sort((a,b)=>((b.better-b.worse)-(a.better-a.worse))||(b.s.n-a.s.n)||(b.s.pf-a.s.pf)||(a.s.dd-b.s.dd));
+if(!rob.length)console.log('No candidate simultaneously keeps >= live trades, PF >= live, and DD <= live.');
+else rob.slice(0,30).forEach((x,k)=>console.log(`${k+1} | ADX>=${x.q.adx} ATR${x.q.amin}-${x.q.amax} BODY>=${x.q.body} MOM>=${x.q.mom} | ${fmt(x.s)} | H1 ${fmt(x.h1)} | H2 ${fmt(x.h2)} | M +${x.better}/-${x.worse}/=${x.tie} | worst ${x.worst.toFixed(2)}R`));
