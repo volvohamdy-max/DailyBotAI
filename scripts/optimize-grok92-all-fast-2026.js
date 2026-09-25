@@ -58,7 +58,7 @@ const glo=FROM.getTime(),ghi=TO.getTime(),gmid=glo+Math.floor((ghi-glo)/2);
 const grid=[];
 for(const side of ['BUY','SELL'])for(const r of (side==='BUY'?[48,50,52,54,56]:[40,42,44,46,48]))for(const gap of [.02,.04,.06,.08,.10])for(const vol of [1.0,1.1,1.2,1.25,1.3,1.4])for(const adx of [18,20,22,24,26])for(const dist of [.15,.20,.30,.40,.50]){const a=gp(side,r,r,gap,vol,adx,dist);if(a.length<20)continue;const s=stat(a),f=stat(a.filter(x=>x.t<=gmid)),z=stat(a.filter(x=>x.t>gmid));grid.push({side,r,gap,vol,adx,dist,...s,f,z})}
 console.log('\nGROK92 — ALL FILTERS OPTIMIZER (research only; live unchanged)');
-for(const side of ['BUY','SELL']){const base=gp(side,52,44,.04,1.25,22,.30);console.log('\n'+side+' LIVE BASE | '+gf(stat(base))+' | H1 '+gf(stat(base.filter(x=>x.t<=gmid)))+' | H2 '+gf(stat(base.filter(x=>x.t>gmid)));
+for(const side of ['BUY','SELL']){const base=gp(side,52,44,.04,1.25,22,.30);console.log('\n'+side+' LIVE BASE | '+gf(stat(base))+' | H1 '+gf(stat(base.filter(x=>x.t<=gmid)))+' | H2 '+gf(stat(base.filter(x=>x.t>gmid))));
  const z=grid.filter(x=>x.side===side).sort((a,b)=>b.n-a.n||b.pf-a.pf||a.dd-b.dd).slice(0,25);
  console.log('TOP 25 '+side+' BY NET R');
  z.forEach((s,k)=>console.log(`${String(k+1).padStart(2)} | RSI ${side==='BUY'?'>':'<'}${s.r} GAP>=${s.gap.toFixed(2)} VOL>=${s.vol.toFixed(2)} ADX>=${s.adx} DIST>=${s.dist.toFixed(2)} | ${gf(s)} | H1 ${gf(s.f)} | H2 ${gf(s.z)}`));
