@@ -96,3 +96,17 @@ const m28=[...new Set([...la,...a28].map(x=>new Date(x.t).toISOString().slice(0,
 let better=0,worse=0,tie=0;
 for(const m of m28){const l=stat(la.filter(x=>new Date(x.t).toISOString().startsWith(m))),v=stat(a28.filter(x=>new Date(x.t).toISOString().startsWith(m)));const d=v.n-l.n;if(d>.01)better++;else if(d<-.01)worse++;else tie++;console.log(m+' | LIVE '+ef(l)+' | #28 '+ef(v)+' | DELTA '+(d>=0?'+':'')+d.toFixed(2)+'R')}
 console.log('MONTHS | BETTER '+better+' | WORSE '+worse+' | TIE '+tie);
+
+console.log('\nEXHAUSTION BUY — ROBUST MONTHLY SEARCH (T120-145)');
+const robust=[];
+for(const burst of [1.95,2.0,2.05,2.1,2.15,2.2])
+for(const adx of [24,25,26,27,28,29,30,31,32])
+for(const retrace of [.15,.175,.20,.225,.25]){
+ const p={hours,burst,body:.50,adx,wick:.30,retrace},a=pick('BUY',p),s=stat(a);
+ if(s.t<120||s.t>145||s.pf<1.8||s.dd>=4.76)continue;
+ let better=0,worse=0,tie=0,deltaSum=0,worstDelta=Infinity;
+ for(const m of m28){const l=stat(la.filter(x=>new Date(x.t).toISOString().startsWith(m))),v=stat(a.filter(x=>new Date(x.t).toISOString().startsWith(m))),d=v.n-l.n;deltaSum+=d;worstDelta=Math.min(worstDelta,d);if(d>.01)better++;else if(d<-.01)worse++;else tie++;}
+ const h1=stat(a.filter(x=>x.t<=mid)),h2=stat(a.filter(x=>x.t>mid));
+ robust.push({p,...s,h1,h2,better,worse,tie,deltaSum,worstDelta});
+}
+robust.sort((a,b)=>(b.better-b.worse)-(a.better-a.worse)||b.n-a.n||b.pf-a.pf||a.dd-b.dd).slice(0,30).forEach((s,k)=>console.log(`${String(k+1).padStart(2)} | B${s.p.burst.toFixed(2)} A${s.p.adx} R${s.p.retrace.toFixed(3)} | ${ef(s)} | H1 ${ef(s.h1)} | H2 ${ef(s.h2)} | M +${s.better}/-${s.worse}/=${s.tie} | worst ${s.worstDelta>=0?'+':''}${s.worstDelta.toFixed(2)}R`));
