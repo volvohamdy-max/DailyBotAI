@@ -8,12 +8,37 @@
  * Default period: last 365 days ending now.
  * No live files are modified.
  */
-const { getHistoricalRates } = require('dukascopy-node');
+const { getHistoricalRates } = require('dukascopy-node');\nconst fs=require('fs'),path=require('path');
 
 const DAY = 86400000;
 const N = Number;
 const FROM = new Date(process.env.BACKTEST_FROM || (Date.now() - 365 * DAY));
 const TO = new Date(process.env.BACKTEST_TO || Date.now());
+
+function normalize(raw){
+ let M=(raw||[]).map(x=>({t:N(x.timestamp??x.time??x.date),o:N(x.open??x.o),h:N(x.high??x.h),l:N(x.low??x.l),c:N(x.close??x.c),v:N(x.volume??x.v??0)})).filter(x=>[x.t,x.o,x.h,x.l,x.c].every(N.isFinite)).sort((a,b)=>a.t-b.t);
+ if(M[0]?.t<1e12)M.forEach(x=>x.t*=1000);
+ return M;
+}
+function localData(){
+ for(const f of ['xauusd-m5-dukascopy.json','xauusd-m5.json']){
+  const p=path.join(__dirname,'../data',f);
+  if(fs.existsSync(p)){const x=JSON.parse(fs.readFileSync(p,'utf8'));const M=normalize(Array.isArray(x)?x:x.candles||x.data||x.values||[]);if(M.length>=1000)return{M,source:p}}
+ }
+ return null;
+}
+async function downloadChunked(){
+ const start=new Date(FROM.getTime()-100*DAY),end=TO,all=[];
+ for(let t=start.getTime();t<end.getTime();t+=14*DAY){
+  const a=new Date(t),b=new Date(Math.min(t+14*DAY,end.getTime()));
+  process.stdout.write(`  Dukascopy ${a.toISOString().slice(0,10)} -> ${b.toISOString().slice(0,10)} ... `);
+  try{
+   const x=await getHistoricalRates({instrument:'xauusd',dates:{from:a,to:b},timeframe:'m5',format:'json',priceType:'bid',volumes:true,batchSize:1,pauseBetweenBatchesMs:1400,useCache:true,cacheFolderPath:'./data/dukascopy-cache',retryCount:1,retryOnEmpty:false});
+   console.log((x||[]).length); if(x?.length)all.push(...x);
+  }catch(e){console.log('skip ('+(e.message||e)+')')}
+ }
+ return normalize(all);
+}
 
 function ema(v,p){const a=Array(v.length).fill(NaN);if(!v.length)return a;let e=v[0],k=2/(p+1);for(let i=0;i<v.length;i++){if(i)e=v[i]*k+e*(1-k);if(i>=p-1)a[i]=e}return a}
 function rsi(v,p=14){const a=Array(v.length).fill(NaN);let ag,al;for(let i=1;i<v.length;i++){const d=v[i]-v[i-1],g=Math.max(d,0),l=Math.max(-d,0);if(i===p){let gs=0,ls=0;for(let j=1;j<=p;j++){const z=v[j]-v[j-1];gs+=Math.max(z,0);ls+=Math.max(-z,0)}ag=gs/p;al=ls/p}else if(i>p){ag=(ag*(p-1)+g)/p;al=(al*(p-1)+l)/p}if(i>=p)a[i]=al===0?100:100-100/(1+ag/al)}return a}
@@ -28,11 +53,12 @@ function print(name,a){const s=stats(a),b=stats(a.filter(x=>x.side==='BUY')),q=s
 function add(a,i,side,r,t){if(t>=FROM.getTime()&&t<=TO.getTime()&&N.isFinite(r))a.push({i,side,r,t})}
 
 (async()=>{
- console.log('Downloading/loading Dukascopy XAUUSD M5...');
- const raw=await getHistoricalRates({instrument:'xauusd',dates:{from:new Date(FROM.getTime()-100*DAY),to:TO},timeframe:'m5',format:'json',priceType:'bid',volumes:true,batchSize:1,pauseBetweenBatchesMs:1200,useCache:true,cacheFolderPath:'./data/dukascopy-cache',retryCount:2,retryOnEmpty:true});
- let M=(raw||[]).map(x=>({t:N(x.timestamp),o:N(x.open),h:N(x.high),l:N(x.low),c:N(x.close),v:N(x.volume||0)})).filter(x=>[x.t,x.o,x.h,x.l,x.c].every(N.isFinite)).sort((a,b)=>a.t-b.t);
- if(M[0]?.t<1e12)M.forEach(x=>x.t*=1000);
- if(M.length<1000)throw Error('Not enough Dukascopy M5 candles: '+M.length);
+ console.log('Loading XAUUSD M5...');
+ const local=localData(); let M,source;
+ if(local){M=local.M;source='LOCAL '+local.source;console.log('Using local candles:',M.length)}
+ else{console.log('No local M5 JSON found; downloading Dukascopy in 14-day chunks (empty chunks are skipped).');M=await downloadChunked();source='DUKASCOPY CHUNKED'}
+ if(M.length<1000)throw Error('Not enough M5 candles after local/chunked fallback: '+M.length);
+ M=M.filter(x=>x.t>=FROM.getTime()-100*DAY&&x.t<=TO.getTime());
  const C=M.map(x=>x.c),A=atr(M),R=rsi(C),D=adx(M),E9=ema(C,9),E20=ema(C,20),E21=ema(C,21),E50=ema(C,50);
  const H=aggregate(M,3600000),HC=H.map(x=>x.c),H20=ema(HC,20),H50=ema(HC,50),H200=ema(HC,200),HA=atr(H),HD=adx(H);
  const DY=aggregate(M,DAY),DC=DY.map(x=>x.c),DE50=ema(DC,50);
@@ -54,7 +80,7 @@ function add(a,i,side,r,t){if(t>=FROM.getTime()&&t<=TO.getTime()&&N.isFinite(r))
   if(hr>=10&&hr<=19&&A[i]>0){const rg=b.h-b.l,body=Math.abs(b.c-b.o),side=E9[i]>E21[i]&&E21[i]>E50[i]&&E21[i]>E21[i-3]?'BUY':E9[i]<E21[i]&&E21[i]<E50[i]&&E21[i]<E21[i-3]?'SELL':null;if(side&&rg>0&&body/rg>=.55&&Math.abs(E9[i]-E21[i])/A[i]>=.08){const is=i-4,ie=i-2,imp=side==='BUY'?M[ie].c-M[is].o:M[is].o-M[ie].c,ph=M[ie+1].h,pl=M[ie+1].l,retr=side==='BUY'?(M[ie].c-pl)/imp:(ph-M[ie].c)/imp,pos=(b.c-b.l)/rg,confirm=side==='BUY'?(pos>=.62&&b.c>M[i-1].h):(pos<=.38&&b.c<M[i-1].l);if(imp>=1.2*A[i]&&retr>=.12&&retr<=.45&&confirm){const e=M[i+1].o,risk=1.1*A[i];add(MI,i,side,fixed(M,i,side,side==='BUY'?e-risk:e+risk,side==='BUY'?e+risk*.7:e-risk*.7,10),b.t)}}}
  }
  console.log('\n🧪 FRESH XAUUSD LIVE-RULES BACKTEST');
- console.log(`${FROM.toISOString()} -> ${TO.toISOString()} | M5=${M.length} | Dukascopy BID | conservative same-bar SL first`);
+ console.log(`${FROM.toISOString()} -> ${TO.toISOString()} | M5=${M.length} | ${source} | conservative same-bar SL first`);
  const groups=[['EXHAUSTION',EX],['RAPID',RA],['GROK92',GR],['PRO',PR],['RANGE',RM],['SWEEP5',SW],['MICRO',MI]];let all=[];for(const [n,a] of groups){print(n,a);all=all.concat(a)}all.sort((a,b)=>a.t-b.t);print('TOTAL RAW',all);
  console.log('READ ONLY: no strategy/live file changed.');
 })().catch(e=>{console.error('BACKTEST FAILED:',e.stack||e);process.exitCode=1});
