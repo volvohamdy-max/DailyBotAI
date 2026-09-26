@@ -136,10 +136,10 @@ const stage2=[
 ];
 const rows2=stage2.map(([name,fn])=>({name,dev:S(dev2.filter(fn)),hold:S(hold2.filter(fn)),all:S(candidates.filter(fn))}))
  .sort((a,b)=>b.dev.n-a.dev.n);
-function L2(z){return 'T'+z.t+' WR'+z.wr.toFixed(1)+' PF'+z.pf.toFixed(2)+' N'+(z.n>=0?'+':'')+z.n.toFixed(2)+'R DD'+z.dd.toFixed(2)+'R'}
+function L2(z){return 'T'+z.t+' WR'+z.wr.toFixed(1)+' PF'+z.pf.toFixed(2)+' N'+(z.net>=0?'+':'')+z.net.toFixed(2)+'R DD'+z.dd.toFixed(2)+'R'}
 for(const z of rows2){console.log('\n'+z.name);console.log(' DEV  '+L2(z.dev));console.log(' HOLD '+L2(z.hold));console.log(' ALL  '+L2(z.all))}
 console.log('\n🛡️ STAGE 2 ROBUST: DEV WR>=63/PF>=1.90 and HOLD positive/PF>=1.50');
-const robust2=rows2.filter(z=>z.dev.wr>=63&&z.dev.pf>=1.90&&z.hold.t>=20&&z.hold.n>0&&z.hold.pf>=1.50);
+const robust2=rows2.filter(z=>z.dev.wr>=63&&z.dev.pf>=1.90&&z.hold.t>=20&&z.hold.net>0&&z.hold.pf>=1.50);
 if(!robust2.length)console.log('NONE — keep Micro unchanged.');
 else for(const z of robust2)console.log(z.name+' | DEV '+L2(z.dev)+' | HOLD '+L2(z.hold)+' | ALL '+L2(z.all));
 
