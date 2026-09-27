@@ -22,7 +22,7 @@ const TWELVE_MIN_REQUEST_GAP_MS =
 const TWELVE_429_COOLDOWN_MS =
   Number(process.env.TWELVE_429_COOLDOWN_MS) || 30000;
 const PRICE_FRESH_MS =
-  Number(process.env.MARKET_PRICE_CACHE_MS) || 30000;
+  Number(process.env.MARKET_PRICE_CACHE_MS) || 10000;
 const PRICE_STALE_MAX_MS =
   Number(process.env.MARKET_PRICE_STALE_MS) || 5 * 60 * 1000;
 const PROVIDER_TIMEOUT_MS =
