@@ -14,7 +14,7 @@ function getCachedPrice(pair) {
         return null;
     }
 
-    const CACHE_TIME = 30 * 1000; // 30 seconds - Trade Monitor
+    const CACHE_TIME = Number(process.env.TRADE_MONITOR_PRICE_CACHE_MS) || 10 * 1000; // 10s default: keep TP/SL tracking responsive
 
     if (Date.now() - item.time > CACHE_TIME) {
         delete cache[pair];
