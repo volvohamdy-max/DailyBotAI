@@ -13,13 +13,30 @@ const inFlight = new Map();
 function recoveryCacheMs(interval) {
   if (interval === '5min') return 5 * 60 * 1000;
   if (interval === '15min') return 15 * 60 * 1000;
+  if (interval === '30min') return 30 * 60 * 1000;
   if (interval === '1h') return 60 * 60 * 1000;
+  if (interval === '4h') return 4 * 60 * 60 * 1000;
+  if (interval === '1day') return 24 * 60 * 60 * 1000;
+  if (interval === '1week') return 7 * 24 * 60 * 60 * 1000;
+  if (interval === '1month') return 30 * 24 * 60 * 60 * 1000;
   return Number(process.env.GOLD_CANDLE_RECOVERY_CACHE_MS) || 5 * 60 * 1000;
 }
 function candleBucket(timestamp, interval) { return Math.floor(Number(timestamp) / recoveryCacheMs(interval)); }
 function cacheIsCurrent(cached, interval) { return !!cached && Number.isFinite(cached.time) && candleBucket(cached.time, interval) === candleBucket(Date.now(), interval); }
 function minBars(interval) { if (interval === '5min') return 120; if (interval === '15min') return 100; if (interval === '1h') return 100; return 100; }
-function binanceInterval(interval) { return ({ '1min':'1m', '5min':'5m', '15min':'15m', '30min':'30m', '1h':'1h' })[interval] || null; }
+function binanceInterval(interval) {
+  return ({
+    '1min':'1m',
+    '5min':'5m',
+    '15min':'15m',
+    '30min':'30m',
+    '1h':'1h',
+    '4h':'4h',
+    '1day':'1d',
+    '1week':'1w',
+    '1month':'1M'
+  })[interval] || null;
+}
 
 async function getBinanceGoldProxyRaw(interval, wanted) {
   const tf = binanceInterval(interval);
