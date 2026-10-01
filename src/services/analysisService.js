@@ -2,9 +2,9 @@ const marketService = require('./marketService');
 const analyzeIndicators = require('../indicators/analyzer');
 const { askOpenAI } = require('../ai/openaiService');
 
-async function analyzePair(pair) {
+async function analyzePair(pair, timeframe = '15min') {
     console.log('⏱️ START GET CANDLES:', new Date().toLocaleTimeString());
-    const candles = await marketService.getCandles(pair);
+    const candles = await marketService.getCandles(pair, timeframe);
     console.log('⏱️ END GET CANDLES:', new Date().toLocaleTimeString());
 
     if (!candles || !candles.length) {
