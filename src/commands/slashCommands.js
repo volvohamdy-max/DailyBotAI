@@ -325,6 +325,7 @@ function registerSlashCommands(bot) {
   const goldTimeframes = {
     MN: { interval: '1month', ar: 'شهري MN', en: 'Monthly MN' },
     W1: { interval: '1week', ar: 'أسبوعي W1', en: 'Weekly W1' },
+    D1: { interval: '1day', ar: 'يومي D1', en: 'Daily D1' },
     H4: { interval: '4h', ar: '4 ساعات H4', en: '4 Hours H4' },
     H1: { interval: '1h', ar: 'ساعة H1', en: '1 Hour H1' },
     M30: { interval: '30min', ar: '30 دقيقة M30', en: '30 Minutes M30' },
@@ -334,6 +335,7 @@ function registerSlashCommands(bot) {
 
   const goldTimeframeKeyboard = (ctx) => Markup.inlineKeyboard([
     [Markup.button.callback(isEn(ctx) ? '📅 Monthly MN' : '📅 شهري MN', 'gold_tf_MN'), Markup.button.callback(isEn(ctx) ? '📆 Weekly W1' : '📆 أسبوعي W1', 'gold_tf_W1')],
+    [Markup.button.callback(isEn(ctx) ? '☀️ Daily D1' : '☀️ يومي D1', 'gold_tf_D1')],
     [Markup.button.callback(isEn(ctx) ? '🕓 4 Hours H4' : '🕓 4 ساعات H4', 'gold_tf_H4'), Markup.button.callback(isEn(ctx) ? '🕐 1 Hour H1' : '🕐 ساعة H1', 'gold_tf_H1')],
     [Markup.button.callback(isEn(ctx) ? '🕧 30 Minutes M30' : '🕧 30 دقيقة M30', 'gold_tf_M30'), Markup.button.callback(isEn(ctx) ? '🕒 15 Minutes M15' : '🕒 15 دقيقة M15', 'gold_tf_M15')],
     [Markup.button.callback(isEn(ctx) ? '⚡ 5 Minutes M5' : '⚡ 5 دقائق M5', 'gold_tf_M5')]
