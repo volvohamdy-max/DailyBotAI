@@ -1,10 +1,15 @@
 const marketService = require('./marketService');
+const { getGoldCandlesResilient } = require('./goldCandleRecovery');
 const analyzeIndicators = require('../indicators/analyzer');
 const { askOpenAI } = require('../ai/openaiService');
 
 async function analyzePair(pair, timeframe = '15min') {
     console.log('⏱️ START GET CANDLES:', new Date().toLocaleTimeString());
-    const candles = await marketService.getCandles(pair, timeframe);
+    // XAUUSD analysis uses the established Binance PAXG proxy candle path.
+    // Other assets keep the existing marketService candle routing.
+    const candles = String(pair).toUpperCase() === 'XAUUSD'
+        ? await getGoldCandlesResilient(timeframe)
+        : await marketService.getCandles(pair, timeframe);
     console.log('⏱️ END GET CANDLES:', new Date().toLocaleTimeString());
 
     if (!candles || !candles.length) {
