@@ -782,6 +782,7 @@ function siftingInterval(interval) {
     '15min': '15m',
     '30min': '30m',
     '1h': '1h',
+    '4h': '1h',
     '1day': '1d',
     '1week': '1w',
     '1month': '1mo'
@@ -815,7 +816,9 @@ async function candlesFromSifting(pair, interval) {
    * limit=100 still caps the returned dataset.
    */
   const lookbackMinutes =
-    interval === '1month'
+    interval === '4h'
+      ? 7 * 24 * 60
+      : interval === '1month'
       ? 5 * 365 * 24 * 60
       : interval === '1week'
         ? 2 * 365 * 24 * 60
@@ -911,6 +914,31 @@ async function candlesFromSifting(pair, interval) {
       )
       .slice(-100);
 
+  // Sifting has no native 4h commodity bar. Build H4 from genuine H1
+  // OHLCV candles, aligned to UTC 4-hour buckets.
+  let finalOut = out;
+  if (interval === '4h') {
+    const buckets = new Map();
+    for (const bar of out) {
+      const bucketMs = 4 * 60 * 60 * 1000;
+      const bucket = Math.floor(Number(bar.timestamp) / bucketMs) * bucketMs;
+      const current = buckets.get(bucket);
+      if (!current) {
+        buckets.set(bucket, { ...bar, timestamp: bucket });
+      } else {
+        current.high = Math.max(current.high, bar.high);
+        current.low = Math.min(current.low, bar.low);
+        current.close = bar.close;
+        if (Number.isFinite(current.volume) && Number.isFinite(bar.volume)) {
+          current.volume += bar.volume;
+        } else {
+          current.volume = null;
+        }
+      }
+    }
+    finalOut = [...buckets.values()].sort((a,b) => a.timestamp - b.timestamp).slice(-100);
+  }
+
   const minimumRequired =
     interval === '15min'
       ? 55
@@ -918,10 +946,10 @@ async function candlesFromSifting(pair, interval) {
         ? 30
         : 20;
 
-  if (out.length < minimumRequired) {
+  if (finalOut.length < minimumRequired) {
     throw new Error(
       `Insufficient Sifting candles for ${pair} ${interval}: ` +
-      `${out.length}/${minimumRequired}`
+      `${finalOut.length}/${minimumRequired}`
     );
   }
 
@@ -931,7 +959,7 @@ async function candlesFromSifting(pair, interval) {
   // =====================================================
 
   const sortedOut =
-    [...out].sort(
+    [...finalOut].sort(
       (a, b) =>
         Number(a.timestamp) -
         Number(b.timestamp)
