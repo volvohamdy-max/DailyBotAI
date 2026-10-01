@@ -47,7 +47,7 @@ function parsePair(ctx) {
   return PAIRS.includes(pair) ? pair : null;
 }
 
-function analysisText(ctx, pair, result) {
+function analysisText(ctx, pair, result, timeframeLabel = null) {
   const en = isEn(ctx);
   const i = result?.indicators || {};
   const ema20 = Number(i.ema20);
@@ -57,7 +57,7 @@ function analysisText(ctx, pair, result) {
   const bullish = Number.isFinite(ema20) && Number.isFinite(ema50) && ema20 > ema50;
 
   if (en) {
-    return `📊 ${pair} ANALYSIS
+    return `📊 ${pair} ANALYSIS${timeframeLabel ? ` — ${timeframeLabel}` : ''}
 ━━━━━━━━━━━━━━━━━━
 
 💰 Price: ${fmt(i.lastPrice)}
@@ -69,7 +69,7 @@ function analysisText(ctx, pair, result) {
 ⚠️ Analytical information only.`;
   }
 
-  return `📊 تحليل ${pair}
+  return `📊 تحليل ${pair}${timeframeLabel ? ` — ${timeframeLabel}` : ''}
 ━━━━━━━━━━━━━━━━━━
 
 💰 السعر: ${fmt(i.lastPrice)}
@@ -322,17 +322,46 @@ async function checkDailySlashLimit(ctx, feature) {
 }
 
 function registerSlashCommands(bot) {
-  bot.command('gold', async (ctx) => {
-    if (!(await checkDailySlashLimit(ctx, 'analysis'))) return;
+  const goldTimeframes = {
+    MN: { interval: '1month', ar: 'شهري MN', en: 'Monthly MN' },
+    W1: { interval: '1week', ar: 'أسبوعي W1', en: 'Weekly W1' },
+    H4: { interval: '4h', ar: '4 ساعات H4', en: '4 Hours H4' },
+    H1: { interval: '1h', ar: 'ساعة H1', en: '1 Hour H1' },
+    M30: { interval: '30min', ar: '30 دقيقة M30', en: '30 Minutes M30' },
+    M15: { interval: '15min', ar: '15 دقيقة M15', en: '15 Minutes M15' },
+    M5: { interval: '5min', ar: '5 دقائق M5', en: '5 Minutes M5' }
+  };
 
-    try {
-      await ctx.reply(isEn(ctx) ? '🥇 Analyzing XAUUSD...' : '🥇 جاري تحليل الذهب XAUUSD...');
-      const result = await analyzePair('XAUUSD');
-      return ctx.reply(analysisText(ctx, 'XAUUSD', result), menu(ctx));
-    } catch (error) {
-      console.log('/gold error:', error.message);
-      return ctx.reply(isEn(ctx) ? '❌ Gold analysis failed.' : '❌ تعذر تحليل الذهب.');
-    }
+  const goldTimeframeKeyboard = (ctx) => Markup.inlineKeyboard([
+    [Markup.button.callback(isEn(ctx) ? '📅 Monthly MN' : '📅 شهري MN', 'gold_tf_MN'), Markup.button.callback(isEn(ctx) ? '📆 Weekly W1' : '📆 أسبوعي W1', 'gold_tf_W1')],
+    [Markup.button.callback(isEn(ctx) ? '🕓 4 Hours H4' : '🕓 4 ساعات H4', 'gold_tf_H4'), Markup.button.callback(isEn(ctx) ? '🕐 1 Hour H1' : '🕐 ساعة H1', 'gold_tf_H1')],
+    [Markup.button.callback(isEn(ctx) ? '🕧 30 Minutes M30' : '🕧 30 دقيقة M30', 'gold_tf_M30'), Markup.button.callback(isEn(ctx) ? '🕒 15 Minutes M15' : '🕒 15 دقيقة M15', 'gold_tf_M15')],
+    [Markup.button.callback(isEn(ctx) ? '⚡ 5 Minutes M5' : '⚡ 5 دقائق M5', 'gold_tf_M5')]
+  ]);
+
+  async function openGoldTimeframes(ctx) {
+    return ctx.reply(
+      isEn(ctx) ? '🥇 XAUUSD Analysis\n\nChoose the timeframe:' : '🥇 تحليل الذهب XAUUSD\n\nاختر الفريم الزمني للتحليل:',
+      goldTimeframeKeyboard(ctx)
+    );
+  }
+
+  bot.command('gold', openGoldTimeframes);
+  bot.hears(['🥇 تحليل الذهب', '🥇 Gold Analysis'], openGoldTimeframes);
+
+  Object.entries(goldTimeframes).forEach(([code, tf]) => {
+    bot.action(`gold_tf_${code}`, async (ctx) => {
+      await ctx.answerCbQuery().catch(() => null);
+      if (!(await checkDailySlashLimit(ctx, 'analysis'))) return;
+      try {
+        await ctx.reply(isEn(ctx) ? `🥇 Analyzing XAUUSD — ${tf.en}...` : `🥇 جاري تحليل الذهب — ${tf.ar}...`);
+        const result = await analyzePair('XAUUSD', tf.interval);
+        return ctx.reply(analysisText(ctx, 'XAUUSD', result, isEn(ctx) ? tf.en : tf.ar), menu(ctx));
+      } catch (error) {
+        console.log(`/gold ${code} error:`, error.message);
+        return ctx.reply(isEn(ctx) ? '❌ Gold analysis failed for this timeframe.' : '❌ تعذر تحليل الذهب على هذا الفريم.');
+      }
+    });
   });
 
   bot.command('analysis', async (ctx) => {
