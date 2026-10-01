@@ -781,7 +781,10 @@ function siftingInterval(interval) {
     '5min': '5m',
     '15min': '15m',
     '30min': '30m',
-    '1h': '1h'
+    '1h': '1h',
+    '1day': '1d',
+    '1week': '1w',
+    '1month': '1mo'
   })[interval] || null;
 }
 
@@ -812,11 +815,13 @@ async function candlesFromSifting(pair, interval) {
    * limit=100 still caps the returned dataset.
    */
   const lookbackMinutes =
-    interval === '5min'
-      ? 5 * 24 * 60
-      : interval === '15min'
-        ? 5 * 24 * 60
-        : 5 * 24 * 60;
+    interval === '1month'
+      ? 5 * 365 * 24 * 60
+      : interval === '1week'
+        ? 2 * 365 * 24 * 60
+        : interval === '1day'
+          ? 120 * 24 * 60
+          : 5 * 24 * 60;
 
   const start =
     new Date(
@@ -943,7 +948,13 @@ async function candlesFromSifting(pair, interval) {
       ? 30 * 60 * 1000
       : interval === '15min'
         ? 60 * 60 * 1000
-        : 2 * 60 * 60 * 1000;
+        : interval === '1day'
+          ? 3 * 24 * 60 * 60 * 1000
+          : interval === '1week'
+            ? 10 * 24 * 60 * 60 * 1000
+            : interval === '1month'
+              ? 40 * 24 * 60 * 60 * 1000
+              : 2 * 60 * 60 * 1000;
 
   const ageMs =
     Number.isFinite(lastBarTime)
