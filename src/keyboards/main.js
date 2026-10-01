@@ -9,6 +9,7 @@ const mainKeyboard = (
   const { buttons } = tByLang(language);
 
   const rows = [
+    [language === 'en' ? '🥇 Gold Analysis' : '🥇 تحليل الذهب'],
     [language === 'en' ? '🥇 Check Your Trade' : '🥇 اختبر صفقتك'],
     [language === 'en' ? '🤖 Monitor My Trade' : '🤖 راقب صفقتي'],
     [buttons.tradeNow, buttons.bestOpportunity],
