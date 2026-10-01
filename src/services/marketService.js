@@ -1261,8 +1261,10 @@ function candlePlan(pair) {
     ];
   }
 
-  // Gold intraday:
-  // EODHD free plan does NOT support intraday candles.
+  // Gold candles:
+  // Sifting supports only the intraday intervals mapped in siftingInterval().
+  // Higher timeframes (H4/D1/W1/MN) must go directly to TwelveData instead
+  // of generating a guaranteed Sifting failure first.
   if (pair === 'XAUUSD') {
     return [
       ['SiftingIO', candlesFromSifting],
@@ -1346,6 +1348,19 @@ async function getCandles(pair, interval = '15min') {
         const [name, fn]
         of candlePlan(symbol)
       ) {
+        // Do not call Sifting for timeframes it does not support.
+        // This prevents H4/D1/W1/MN analysis from poisoning the
+        // Sifting circuit breaker with guaranteed "unsupported" errors.
+        if (
+          name === 'SiftingIO' &&
+          !siftingInterval(tf)
+        ) {
+          console.log(
+            `⏭️ SiftingIO does not support ${tf}; using higher-timeframe provider`
+          );
+          continue;
+        }
+
         if (!providerAvailable(name)) {
           console.log(
             `⏭️ Candle provider skipped by circuit breaker: ${name}`
