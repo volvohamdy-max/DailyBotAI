@@ -2,7 +2,7 @@ const legacyRegister = require('./userLegacy');
 const config = require('../config');
 const { findUser } = require('../database/users');
 const { analyzePair } = require('../services/analysisService');
-const { getCandles } = require('../services/marketService');
+const { getGoldCandlesResilient } = require('../services/goldCandleRecovery');
 const { calculateTradeLevels } = require('../services/tradeEngine');
 const { runSignalLab } = require('../services/signalLab');
 const { mainKeyboard } = require('../keyboards/main');
@@ -31,27 +31,72 @@ function historicalText(lab,en){
 }
 
 async function buildGoldCheck(ctx,type,direction){
-  const en=isEnglish(ctx),timeframe=type==='scalp'?'5min':'15min';
-  const [analysis,candles]=await Promise.all([analyzePair('XAUUSD'),getCandles('XAUUSD',timeframe)]);
-  if(!analysis||!Array.isArray(candles)||candles.length<20)throw new Error('Insufficient market data');
-  const levels=calculateTradeLevels(candles,direction,'XAUUSD');
-  if(!levels){
-    const {score,marketDirection}=directionalMarketScore(analysis,direction);
-    const confidence=Number(analysis?.signal?.confidence||0);
-    const lab=await runSignalLab('XAUUSD',analysis.indicators||{},direction,{timeframe});
-    const marketText=marketDirection==='BUY'?'📈 BUY':marketDirection==='SELL'?'📉 SELL':'⏳ WAIT';
-    const typeText=type==='scalp'?(en?'⚡ Scalping':'⚡ سكالب'):(en?'📈 Intraday':'📈 إنتراداي');
-    const unavailable=en?`🥇 VIP GOLD TRADE CHECK\n━━━━━━━━━━━━━━━━━━\n\n⚙️ Type: ${typeText}\n🎯 Your direction: ${direction}\n📊 Market direction: ${marketText}\n\n⛔ No safe trade levels are available for ${direction} right now.\n🛑 The required stop-loss distance exceeds the Gold risk limit.\n✅ No trade is recommended until a valid Entry / SL / TP structure becomes available.\n\n━━━━━━━━━━━━━━━━━━\n⭐ Market Score: ${score}/100\n🤖 AI Confidence: ${Number.isFinite(confidence)?confidence:0}%\n⏱️ Analysis timeframe: ${timeframe}`:`🥇 اختبار صفقة الذهب — VIP\n━━━━━━━━━━━━━━━━━━\n\n⚙️ نوع الصفقة: ${typeText}\n🎯 اختيارك: ${direction}\n📊 اتجاه السوق: ${marketText}\n\n⛔ لا توجد مستويات آمنة لصفقة ${direction} حاليًا.\n🛑 مسافة وقف الخسارة المطلوبة أكبر من حد المخاطرة المسموح للذهب.\n✅ لا يُنصح بالدخول حتى تتوفر مستويات دخول / وقف / أهداف صالحة.\n\n━━━━━━━━━━━━━━━━━━\n⭐ قوة الصفقة: ${score}/100\n🤖 ثقة AI: ${Number.isFinite(confidence)?confidence:0}%\n⏱️ فريم التحليل: ${timeframe}`;
-    return unavailable+historicalText(lab,en)+(en?'\n\n⚠️ Historical similarity is analytical evidence, not a guarantee of profit.':'\n\n⚠️ الحالات التاريخية أداة تحليلية وليست ضمانًا للربح.');
+  const en=isEnglish(ctx);
+  const frames=[
+    {key:'M5',interval:'5min'},
+    {key:'M15',interval:'15min'},
+    {key:'M30',interval:'30min'},
+    {key:'H1',interval:'1h'},
+    {key:'H4',interval:'4h'},
+    {key:'D1',interval:'1day'},
+    {key:'W1',interval:'1week'},
+    {key:'MN',interval:'1month'}
+  ];
+
+  const results=[];
+  for(const frame of frames){
+    try{
+      const [analysis,candles]=await Promise.all([
+        analyzePair('XAUUSD',frame.interval),
+        getGoldCandlesResilient(frame.interval)
+      ]);
+      if(!analysis||!Array.isArray(candles)||candles.length<20)throw new Error('Insufficient market data');
+      const indicators=analysis.indicators||{};
+      const e20=Number(indicators.ema20),e50=Number(indicators.ema50);
+      const marketDirection=analysis?.signal?.action==='BUY'||analysis?.signal?.action==='SELL'
+        ? analysis.signal.action
+        : (Number.isFinite(e20)&&Number.isFinite(e50)?(e20>=e50?'BUY':'SELL'):'WAIT');
+      const levels=marketDirection==='WAIT'?null:calculateTradeLevels(candles,marketDirection,'XAUUSD');
+      results.push({frame:frame.key,interval:frame.interval,marketDirection,levels,analysis});
+    }catch(error){
+      console.log(`VIP multi-TF gold check ${frame.key} error:`,error.message);
+      results.push({frame:frame.key,error:error.message});
+    }
   }
-  const {score,marketDirection}=directionalMarketScore(analysis,direction);const confidence=Number(analysis?.signal?.confidence||0);
-  const entry=Number(levels.entry),sl=Number(levels.sl??levels.stopLoss),tp1=Number(levels.tp1??levels.target1),tp2=Number(levels.tp2??levels.target2);
-  const risk=Number.isFinite(entry)&&Number.isFinite(sl)?Math.abs(entry-sl):0;const rr1=risk>0&&Number.isFinite(tp1)?Math.abs(tp1-entry)/risk:null;const rr2=risk>0&&Number.isFinite(tp2)?Math.abs(tp2-entry)/risk:null;
-  const lab=await runSignalLab('XAUUSD',analysis.indicators||{},direction,{timeframe});
-  const marketText=marketDirection==='BUY'?'📈 BUY':marketDirection==='SELL'?'📉 SELL':'⏳ WAIT';const typeText=type==='scalp'?(en?'⚡ Scalping':'⚡ سكالب'):(en?'📈 Intraday':'📈 إنتراداي');
-  const align=marketDirection!==direction?(en?'🔴 Your direction is against the current market.':'🔴 اختيارك عكس اتجاه السوق الحالي.'):(score>=70?(en?'🟢 Your direction is aligned with the current market.':'🟢 اختيارك متوافق مع اتجاه السوق الحالي.'):(en?'🟡 Direction is aligned, but confirmation is moderate.':'🟡 الاتجاه متوافق لكن التأكيد متوسط.'));
-  const base=en?`🥇 VIP GOLD TRADE CHECK\n━━━━━━━━━━━━━━━━━━\n\n⚙️ Type: ${typeText}\n🎯 Your direction: ${direction}\n📊 Market direction: ${marketText}\n\n${align}\n\n━━━━━━━━━━━━━━━━━━\n💰 Entry: ${fmt(entry)}\n🛑 Stop Loss: ${fmt(sl)}\n🎯 TP1: ${fmt(tp1)}\n🏆 TP2: ${fmt(tp2)}\n\n⚖️ Risk / Reward\nTP1 → ${rr1?`1:${rr1.toFixed(2)}`:'—'}\nTP2 → ${rr2?`1:${rr2.toFixed(2)}`:'—'}\n\n━━━━━━━━━━━━━━━━━━\n⭐ Market Score: ${score}/100\n🤖 AI Confidence: ${Number.isFinite(confidence)?confidence:0}%\n⏱️ Analysis timeframe: ${timeframe}`:`🥇 اختبار صفقة الذهب — VIP\n━━━━━━━━━━━━━━━━━━\n\n⚙️ نوع الصفقة: ${typeText}\n🎯 اختيارك: ${direction}\n📊 اتجاه السوق: ${marketText}\n\n${align}\n\n━━━━━━━━━━━━━━━━━━\n💰 الدخول: ${fmt(entry)}\n🛑 وقف الخسارة: ${fmt(sl)}\n🎯 الهدف الأول TP1: ${fmt(tp1)}\n🏆 الهدف الثاني TP2: ${fmt(tp2)}\n\n⚖️ العائد للمخاطرة\nTP1 → ${rr1?`1:${rr1.toFixed(2)}`:'—'}\nTP2 → ${rr2?`1:${rr2.toFixed(2)}`:'—'}\n\n━━━━━━━━━━━━━━━━━━\n⭐ قوة الصفقة: ${score}/100\n🤖 ثقة AI: ${Number.isFinite(confidence)?confidence:0}%\n⏱️ فريم التحليل: ${timeframe}`;
-  return base+historicalText(lab,en)+(en?'\n\n⚠️ Historical similarity is analytical evidence, not a guarantee of profit.':'\n\n⚠️ الحالات التاريخية أداة تحليلية وليست ضمانًا للربح.');
+
+  const header=en
+    ? `🥇 VIP GOLD — MULTI-TIMEFRAME CHECK\n━━━━━━━━━━━━━━━━━━\n🎯 Your selected direction: ${direction}\nℹ️ Each timeframe below is evaluated independently.`
+    : `🥇 اختبار صفقة الذهب — تحليل كل الفريمات\n━━━━━━━━━━━━━━━━━━\n🎯 اتجاهك المختار: ${direction}\nℹ️ كل فريم يتم تحليله وحساب مستوياته بشكل مستقل.`;
+
+  const blocks=results.map(r=>{
+    if(r.error)return en
+      ? `⏱️ ${r.frame} | ❌ Analysis unavailable`
+      : `⏱️ ${r.frame} | ❌ تعذر التحليل`;
+
+    const dir=r.marketDirection;
+    const icon=dir==='BUY'?'📈':dir==='SELL'?'📉':'⏳';
+    const selectedAlign=dir===direction;
+    if(!r.levels)return en
+      ? `⏱️ ${r.frame} | ${icon} ${dir}\n⛔ No safe Entry / SL / TP structure now.`
+      : `⏱️ ${r.frame} | ${icon} ${dir}\n⛔ لا توجد مستويات دخول / وقف / هدف آمنة حاليًا.`;
+
+    const entry=Number(r.levels.entry);
+    const sl=Number(r.levels.sl??r.levels.stopLoss);
+    const tp1=Number(r.levels.tp1??r.levels.target1);
+    const tp2=Number(r.levels.tp2??r.levels.target2);
+    const risk=Number.isFinite(entry)&&Number.isFinite(sl)?Math.abs(entry-sl):0;
+    const rr1=risk>0&&Number.isFinite(tp1)?Math.abs(tp1-entry)/risk:null;
+    const rr2=risk>0&&Number.isFinite(tp2)?Math.abs(tp2-entry)/risk:null;
+    const align=en
+      ? (selectedAlign?'✅ Matches your direction':'⚠️ Opposite your direction')
+      : (selectedAlign?'✅ متوافق مع اتجاهك':'⚠️ عكس اتجاهك');
+    return en
+      ? `⏱️ ${r.frame} | ${icon} ${dir} | ${align}\n💰 Entry: ${fmt(entry)}\n🛑 SL: ${fmt(sl)}\n🎯 TP1: ${fmt(tp1)}${Number.isFinite(tp2)?` | TP2: ${fmt(tp2)}`:''}\n⚖️ RR: ${rr1?`1:${rr1.toFixed(2)}`:'—'}${rr2?` / 1:${rr2.toFixed(2)}`:''}`
+      : `⏱️ ${r.frame} | ${icon} ${dir} | ${align}\n💰 الدخول: ${fmt(entry)}\n🛑 وقف الخسارة: ${fmt(sl)}\n🎯 TP1: ${fmt(tp1)}${Number.isFinite(tp2)?` | TP2: ${fmt(tp2)}`:''}\n⚖️ العائد/المخاطرة: ${rr1?`1:${rr1.toFixed(2)}`:'—'}${rr2?` / 1:${rr2.toFixed(2)}`:''}`;
+  });
+
+  return header+'\n\n'+blocks.join('\n\n━━━━━━━━━━━━━━━━━━\n\n')+
+    (en?'\n\n⚠️ Analytical levels, not a guarantee of profit.':'\n\n⚠️ المستويات تحليلية وليست ضمانًا للربح.');
 }
 
 function registerUserCommands(bot){
