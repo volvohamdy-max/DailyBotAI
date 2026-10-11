@@ -10,6 +10,7 @@ const mainKeyboard = (
 
   const rows = [
     [language === 'en' ? '🥇 Gold Analysis' : '🥇 تحليل الذهب'],
+    [language === 'en' ? '💰 Available Gold Trades' : '💰 صفقات الذهب المتاحة'],
     [language === 'en' ? '🧱 Gold Support & Resistance' : '🧱 دعم ومقاومة الذهب'],
     [language === 'en' ? '🥇 Check Your Trade' : '🥇 اختبر صفقتك'],
     [language === 'en' ? '🤖 Monitor My Trade' : '🤖 راقب صفقتي'],
@@ -17,7 +18,7 @@ const mainKeyboard = (
     [buttons.marketCenter, buttons.alertsCenter],
     [buttons.accountCenter, buttons.more]
   ];
-  if (isVip || isAdmin) rows.splice(3, 0, [language === 'en' ? '🧠 Market Intelligence' : '🧠 مركز ذكاء السوق']);
+  if (isVip || isAdmin) rows.splice(4, 0, [language === 'en' ? '🧠 Market Intelligence' : '🧠 مركز ذكاء السوق']);
   if (isAdmin) rows.push(['🎛️ لوحة الأدمن']);
 
   return Markup.keyboard(rows).resize();
