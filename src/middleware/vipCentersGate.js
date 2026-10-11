@@ -5,6 +5,7 @@ const { vipKeyboard } = require('../keyboards/main');
 const VIP_CENTER_TOOLS = new Set([
   // Gold Center tools
   '🎯 خطة الذهب اليومية', '🎯 Daily Gold Plan',
+  '🚨 رادار مناطق الذهب', '🚨 Gold Zone Radar',
   '🥇 تحليل الذهب', '🥇 Gold Analysis',
   '💰 صفقات الذهب المتاحة', '💰 Available Gold Trades',
   '🧱 دعم ومقاومة الذهب', '🧱 Gold Support & Resistance',
