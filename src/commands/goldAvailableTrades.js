@@ -19,14 +19,29 @@ async function runType(ctx,type){
   try{const result=await getGoldTrade(type);return ctx.reply(formatGoldTrade(result,l),menu(l));}
   catch(e){console.log(`❌ Available gold ${type}:`,e.message);return ctx.reply(en?'❌ Gold analysis is temporarily unavailable. Try again shortly.':'❌ تعذر تحليل الذهب مؤقتًا. جرّب مرة أخرى بعد قليل.',menu(l));}
 }
+async function runBest(ctx,{callback=false}={}){
+  const l=lang(ctx),en=l==='en';
+  if(callback)await ctx.answerCbQuery().catch(()=>null);
+  await ctx.reply(en?'⭐ Comparing all gold trade styles and searching for the strongest available setup...':'⭐ جاري فحص كل أنواع صفقات الذهب واختيار أقوى صفقة متاحة حاليًا...');
+  try{
+    const {best,results}=await getBestGoldTrade();
+    if(!best){
+      const ranked=(results||[]).filter(x=>Number.isFinite(Number(x?.score))).sort((a,b)=>Number(b.score)-Number(a.score));
+      const strongest=ranked[0];
+      const extra=strongest?`\n⭐ ${en?'Strongest current reading':'أقوى قراءة حالية'}: ${strongest.score}/100 (${en?strongest.cfg?.labelEn:strongest.cfg?.labelAr})`:'';
+      return ctx.reply((en?'🔍 No gold setup currently meets the required entry quality.\n⏳ No forced trade.':'🔍 لا توجد صفقة ذهب حاليًا تستوفي جودة الدخول المطلوبة.\n⏳ لن يتم إجبار صفقة.')+extra,menu(l));
+    }
+    return ctx.reply((en?'⭐ BEST GOLD TRADE NOW\n\n':'⭐ أفضل صفقة ذهب الآن\n\n')+formatGoldTrade(best,l),menu(l));
+  }catch(e){
+    console.log('❌ Best available gold:',e.message);
+    return ctx.reply(en?'❌ Unable to compare gold trades right now.':'❌ تعذر مقارنة صفقات الذهب حاليًا.',menu(l));
+  }
+}
 module.exports=function registerGoldAvailableTrades(bot){
   bot.hears(['💰 صفقات الذهب المتاحة','💰 Available Gold Trades'],ctx=>{
     const l=lang(ctx);return ctx.reply(l==='en'?'🥇 AVAILABLE GOLD TRADES\n\nChoose the trade style you want, or let the bot select the strongest current setup.':'🥇 صفقات الذهب المتاحة\n\nاختار نوع الصفقة اللي عايزها، أو خلّي البوت يختار أقوى فرصة موجودة حاليًا.',menu(l));
   });
+  bot.hears(['⭐ أفضل صفقة ذهب الآن','⭐ Best Gold Trade Now'],ctx=>runBest(ctx));
   for(const type of ['scalp','intraday','swing','trend','reversal'])bot.action(`goldavail_${type}`,ctx=>runType(ctx,type));
-  bot.action('goldavail_best',async ctx=>{
-    const l=lang(ctx),en=l==='en';await ctx.answerCbQuery().catch(()=>null);await ctx.reply(en?'⭐ Comparing all gold trade styles...':'⭐ جاري مقارنة كل أنواع صفقات الذهب...');
-    try{const {best}=await getBestGoldTrade();if(!best)return ctx.reply(en?'🔍 No gold setup currently meets the required entry quality.\n\n⏳ No forced trade.':'🔍 لا توجد صفقة ذهب حاليًا تستوفي جودة الدخول المطلوبة.\n\n⏳ لن يتم إجبار صفقة.',menu(l));return ctx.reply((en?'⭐ BEST GOLD TRADE NOW\n\n':'⭐ أفضل صفقة ذهب الآن\n\n')+formatGoldTrade(best,l),menu(l));}
-    catch(e){console.log('❌ Best available gold:',e.message);return ctx.reply(en?'❌ Unable to compare gold trades right now.':'❌ تعذر مقارنة صفقات الذهب حاليًا.',menu(l));}
-  });
+  bot.action('goldavail_best',ctx=>runBest(ctx,{callback:true}));
 };
