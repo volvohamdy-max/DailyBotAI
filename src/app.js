@@ -19,6 +19,7 @@ const registerReport14 = require('./commands/report14');
 const registerAlerts = require('./commands/alerts');
 const registerSettings = require('./commands/settings');
 const registerLiveAudit7 = require('./commands/liveAudit7');
+const registerGoldAvailableTrades = require('./commands/goldAvailableTrades');
 const registerAdminCommands = require('./admin/adminCommands');
 const registerTradeAdminControls = require('./admin/tradeAdminControls');
 const { registerAdminV21 } = require('./admin/adminControlCenterV21');
@@ -102,7 +103,7 @@ async function main() {
   console.log('Commands menu set');
   bot.use(async (ctx, next) => { const maintenance = getAdminBoolSetting('maintenance_mode', false); const isAdmin = (config.adminIds || []).map(String).includes(String(ctx.from?.id)); if (maintenance && !isAdmin) return ctx.reply('🛠️ FOREX AI تحت الصيانة حاليًا. حاول مرة أخرى بعد قليل.\n\nMaintenance Mode is active.'); return next(); });
   bot.use(languageRouter());
-  registerStart(bot); registerSettings(bot); registerAlerts(bot); registerTrendHunter(bot); registerOpportunityRadar(bot); registerAdaptiveIntelligence(bot); registerTradingCommandCenter(bot); registerShadowAudit(bot); registerReport14(bot); registerMarketMap(bot); registerStrategyLab(bot); registerSlashCommands(bot); registerReferralId(bot); registerUserCommands(bot); registerPerformance(bot); registerLiveAudit7(bot); registerAdminCommands(bot); registerTradeAdminControls(bot); registerAdminV21(bot);
+  registerStart(bot); registerSettings(bot); registerAlerts(bot); registerTrendHunter(bot); registerOpportunityRadar(bot); registerAdaptiveIntelligence(bot); registerTradingCommandCenter(bot); registerShadowAudit(bot); registerReport14(bot); registerMarketMap(bot); registerStrategyLab(bot); registerSlashCommands(bot); registerReferralId(bot); registerGoldAvailableTrades(bot); registerUserCommands(bot); registerPerformance(bot); registerLiveAudit7(bot); registerAdminCommands(bot); registerTradeAdminControls(bot); registerAdminV21(bot);
   console.log('Commands are registered.');
   bot.catch((error, ctx) => { console.error(`Bot error for update ${ctx.update.update_id}:`, error); ctx.reply('حدث خطأ مؤقت / Temporary error. Try again.').catch(() => null); });
   startScheduler(bot); startBreakingNews(bot); startFedLiveNews(bot); startDailyNewsBrief(bot); startEconomicReleaseWatch(bot); startCryptoNews(bot); startMarketIntelligence(bot); console.log('Scheduler started.');
