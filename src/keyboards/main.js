@@ -13,6 +13,7 @@ const mainKeyboard = (language = 'ar', isAdmin = false, isVip = false) => {
 
 const goldCenterKeyboard = (language = 'ar') => Markup.keyboard([
   [language === 'en' ? '🎯 Daily Gold Plan' : '🎯 خطة الذهب اليومية'],
+  [language === 'en' ? '🚨 Gold Zone Radar' : '🚨 رادار مناطق الذهب'],
   [language === 'en' ? '🥇 Gold Analysis' : '🥇 تحليل الذهب', language === 'en' ? '💰 Available Gold Trades' : '💰 صفقات الذهب المتاحة'],
   [language === 'en' ? '🧱 Gold Support & Resistance' : '🧱 دعم ومقاومة الذهب', language === 'en' ? '⭐ Best Gold Trade Now' : '⭐ أفضل صفقة ذهب الآن'],
   [language === 'en' ? '🥇 Check Your Trade' : '🥇 اختبر صفقتك', language === 'en' ? '🤖 Monitor My Trade' : '🤖 راقب صفقتي'],
