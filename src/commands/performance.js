@@ -1,5 +1,6 @@
 const { getStats } = require('../database/performance');
 const { findUser } = require('../database/users');
+const { isAdmin } = require('../utils/auth');
 
 function isEnglish(ctx) { return findUser(ctx.from.id)?.language === 'en'; }
 function pct(value) { return `${Number(value || 0).toFixed(1)}%`; }
@@ -25,6 +26,9 @@ function formatStats(stats,en){
 }
 
 function registerPerformance(bot){
-  bot.command('performance',async ctx=>{try{const en=isEnglish(ctx),s7=getStats(7),s30=getStats(30);await ctx.reply(formatStats(s7,en));return ctx.reply(formatStats(s30,en));}catch(error){console.log('/performance error:',error.message);return ctx.reply(isEnglish(ctx)?'❌ Performance statistics are temporarily unavailable.':'❌ إحصائيات الأداء غير متاحة مؤقتًا.');}});
+  bot.command('performance',async ctx=>{
+    if(!isAdmin(ctx.from?.id)) return ctx.reply(isEnglish(ctx)?'⛔ Performance statistics are available to admins only.':'⛔ سجل الأداء متاح للأدمن فقط.');
+    try{const en=isEnglish(ctx),s7=getStats(7),s30=getStats(30);await ctx.reply(formatStats(s7,en));return ctx.reply(formatStats(s30,en));}catch(error){console.log('/performance error:',error.message);return ctx.reply(isEnglish(ctx)?'❌ Performance statistics are temporarily unavailable.':'❌ إحصائيات الأداء غير متاحة مؤقتًا.');}
+  });
 }
 module.exports=registerPerformance;
