@@ -69,10 +69,25 @@ function removeLegacyGoldPowerData() {
   } catch (error) { console.log('⚠️ GOLD POWER legacy cleanup skipped:', error.message); }
 }
 
+function resetPerformanceHistoryOnce() {
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS app_migrations (key TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
+    const key = 'reset_performance_history_2026_10_11';
+    const done = db.prepare('SELECT key FROM app_migrations WHERE key = ?').get(key);
+    if (done) return;
+    try { db.exec('DELETE FROM trade_performance'); }
+    catch (error) { if (!String(error.message || '').toLowerCase().includes('no such table')) throw error; }
+    db.prepare('INSERT INTO app_migrations (key) VALUES (?)').run(key);
+    console.log('🧹 Performance history reset completed; new tracking starts from this deployment.');
+  } catch (error) {
+    console.log('⚠️ Performance history reset skipped:', error.message);
+  }
+}
+
 async function main() {
   console.log('Starting Telegram Forex AI bot...');
   if (!config.botToken) { console.error('BOT_TOKEN is required. Copy .env.example to .env and configure it.'); process.exit(1); }
-  await db.ready; initDatabase(); removeLegacyGoldPowerData(); console.log('Database is ready.');
+  await db.ready; initDatabase(); resetPerformanceHistoryOnce(); removeLegacyGoldPowerData(); console.log('Database is ready.');
   const bot = new Telegraf(config.botToken); installTelegramMarketHashtags(bot);
   await bot.telegram.setMyCommands([
     { command: 'start', description: '🚀 Start / بدء' }, { command: 'menu', description: '📋 Main menu / القائمة الرئيسية' },
@@ -81,7 +96,7 @@ async function main() {
     { command: 'adaptive', description: '🧠 Adaptive Intelligence / الذكاء المتكيف' }, { command: 'center', description: '🎛️ Trading Center / مركز التداول' },
     { command: 'trend', description: '📡 Trend Hunter / صياد الترند' }, { command: 'map', description: '🧭 Market Map / خريطة السوق' },
     { command: 'analysis', description: '📈 Analyze asset / تحليل أصل' }, { command: 'gold', description: '🥇 XAUUSD analysis / تحليل الذهب' },
-    { command: 'news', description: '📰 Economic news / الأخبار' }, { command: 'alerts', description: '🔔 Alerts / التنبيهات' }, { command: 'performance', description: '📊 Performance / الأداء' }, { command: 'status', description: '👤 Account / الحساب' },
+    { command: 'news', description: '📰 Economic news / الأخبار' }, { command: 'alerts', description: '🔔 Alerts / التنبيهات' }, { command: 'status', description: '👤 Account / الحساب' },
     { command: 'ref', description: '🔗 Referral / الإحالة' }, { command: 'vip', description: '💎 VIP' }, { command: 'help', description: 'ℹ️ Help / المساعدة' }
   ]);
   console.log('Commands menu set');
