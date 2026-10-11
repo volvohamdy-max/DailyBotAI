@@ -23,10 +23,9 @@ const mainKeyboard = (
   return Markup.keyboard(rows).resize();
 };
 
-const marketKeyboard = (language = 'ar') => {
+const marketKeyboard = (language = 'ar', isAdmin = false) => {
   const { buttons } = tByLang(language);
-  return Markup.keyboard([
-    [language === 'en' ? '📊 Bot Results' : '📊 نتائج البوت'],
+  const rows = [
     [buttons.scanner, buttons.marketMap],
     [language === 'en' ? '🧪 My Strategy' : '🧪 استراتيجيتي'],
     [buttons.trendHunter, buttons.analysis],
@@ -34,7 +33,9 @@ const marketKeyboard = (language = 'ar') => {
     [language === 'en' ? '🧠 Adaptive Intelligence' : '🧠 الذكاء المتكيف'],
     [buttons.signalLab],
     [buttons.back]
-  ]).resize();
+  ];
+  if (isAdmin) rows.unshift([language === 'en' ? '📊 Bot Results' : '📊 نتائج البوت']);
+  return Markup.keyboard(rows).resize();
 };
 
 const alertsKeyboard = (language = 'ar') => { const { buttons } = tByLang(language); return Markup.keyboard([[buttons.alerts],[buttons.back]]).resize(); };
