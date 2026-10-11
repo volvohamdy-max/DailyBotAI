@@ -53,6 +53,11 @@ const alertsKeyboard = (language = 'ar') => { const { buttons } = tByLang(langua
 const accountKeyboard = (language = 'ar') => { const { buttons } = tByLang(language); return Markup.keyboard([[buttons.account, buttons.vip],[buttons.referral, buttons.language],[buttons.settings, buttons.support],[buttons.back]]).resize(); };
 const moreKeyboard = accountKeyboard;
 const settingsKeyboard = (language = 'ar') => { const { buttons } = tByLang(language); return Markup.keyboard([[buttons.language],[buttons.back]]).resize(); };
-const vipKeyboard = () => Markup.inlineKeyboard([[Markup.button.callback('Monthly - 30 days / شهري', 'vip_monthly')],[Markup.button.callback('Quarterly - 90 days / ثلاثي', 'vip_quarterly')],[Markup.button.callback('Yearly - 365 days / سنوي', 'vip_yearly')]]);
+const vipKeyboard = () => Markup.inlineKeyboard([
+  [Markup.button.callback('💎 $29.99 — شهر / 30 Days', 'vip_monthly')],
+  [Markup.button.callback('💎 $74.99 — 3 شهور / 90 Days', 'vip_quarterly')],
+  [Markup.button.callback('💎 $249.99 — سنة / 365 Days', 'vip_yearly')],
+  [Markup.button.url('💬 مساعدة الاشتراك / Subscription Help', 'https://t.me/Axiomiexfx_support')]
+]);
 
 module.exports = { mainKeyboard, goldCenterKeyboard, tradingCenterKeyboard, marketKeyboard, advancedToolsKeyboard, alertsKeyboard, accountKeyboard, moreKeyboard, settingsKeyboard, vipKeyboard };
