@@ -23,7 +23,8 @@ function levels(candles) {
 }
 
 async function buildDailyGoldPlan(en = false) {
-  const frames = ['1d', '4h', '1h'];
+  // goldCandleRecovery uses canonical interval names: 1day, 4h, 1h.
+  const frames = ['1day', '4h', '1h'];
   const analyses = {};
   for (const tf of frames) analyses[tf] = await analyzePair('XAUUSD', tf);
   const dirs = Object.fromEntries(frames.map(tf => [tf, direction(analyses[tf])]));
@@ -42,8 +43,8 @@ async function buildDailyGoldPlan(en = false) {
       ? (en ? 'Prefer selling rebounds while the multi-timeframe bearish structure remains intact.' : 'الأفضل اليوم البحث عن بيع من الارتفاعات طالما هيكل الفريمات ما زال هابطًا.')
       : (en ? 'No clear multi-timeframe edge. Waiting for alignment is preferable to forcing a trade.' : 'لا يوجد توافق قوي بين الفريمات حاليًا؛ الانتظار أفضل من إجبار صفقة.');
 
-  if (en) return `🎯 DAILY GOLD PLAN — XAUUSD\n━━━━━━━━━━━━━━━━━━\n\n💵 Live price: ${fmt(h1.lastPrice)}\n\n🧭 MULTI-TIMEFRAME DIRECTION\n• D1: ${label(dirs['1d'], true)}\n• H4: ${label(dirs['4h'], true)}\n• H1: ${label(dirs['1h'], true)}\n\n🎯 Daily bias: ${label(bias, true)}\n💪 Trend strength H1: ${strength}${adx == null ? '' : ` (ADX ${adx.toFixed(1)})`}\n📊 RSI H1: ${rsi == null ? '—' : rsi.toFixed(1)}\n\n🧱 KEY H1 ZONE\n• Support: ${fmt(lv.support)}\n• Resistance: ${fmt(lv.resistance)}\n\n📌 TODAY'S PLAN\n${plan}\n\n⚠️ Recheck the plan after major market moves or high-impact news. This is analytical guidance, not a profit guarantee.`;
-  return `🎯 خطة الذهب اليومية — XAUUSD\n━━━━━━━━━━━━━━━━━━\n\n💵 السعر اللحظي: ${fmt(h1.lastPrice)}\n\n🧭 اتجاه الفريمات\n• اليومي D1: ${label(dirs['1d'], false)}\n• 4 ساعات H4: ${label(dirs['4h'], false)}\n• الساعة H1: ${label(dirs['1h'], false)}\n\n🎯 انحياز اليوم: ${label(bias, false)}\n💪 قوة الاتجاه H1: ${strength}${adx == null ? '' : ` (ADX ${adx.toFixed(1)})`}\n📊 RSI H1: ${rsi == null ? '—' : rsi.toFixed(1)}\n\n🧱 أهم منطقة على H1\n• الدعم: ${fmt(lv.support)}\n• المقاومة: ${fmt(lv.resistance)}\n\n📌 خطة اليوم\n${plan}\n\n⚠️ أعد فحص الخطة بعد الحركات الكبيرة أو الأخبار القوية. التحليل للمساعدة في القرار وليس ضمانًا للربح.`;
+  if (en) return `🎯 DAILY GOLD PLAN — XAUUSD\n━━━━━━━━━━━━━━━━━━\n\n💵 Live price: ${fmt(h1.lastPrice)}\n\n🧭 MULTI-TIMEFRAME DIRECTION\n• D1: ${label(dirs['1day'], true)}\n• H4: ${label(dirs['4h'], true)}\n• H1: ${label(dirs['1h'], true)}\n\n🎯 Daily bias: ${label(bias, true)}\n💪 Trend strength H1: ${strength}${adx == null ? '' : ` (ADX ${adx.toFixed(1)})`}\n📊 RSI H1: ${rsi == null ? '—' : rsi.toFixed(1)}\n\n🧱 KEY H1 ZONE\n• Support: ${fmt(lv.support)}\n• Resistance: ${fmt(lv.resistance)}\n\n📌 TODAY'S PLAN\n${plan}\n\n⚠️ Recheck the plan after major market moves or high-impact news. This is analytical guidance, not a profit guarantee.`;
+  return `🎯 خطة الذهب اليومية — XAUUSD\n━━━━━━━━━━━━━━━━━━\n\n💵 السعر اللحظي: ${fmt(h1.lastPrice)}\n\n🧭 اتجاه الفريمات\n• اليومي D1: ${label(dirs['1day'], false)}\n• 4 ساعات H4: ${label(dirs['4h'], false)}\n• الساعة H1: ${label(dirs['1h'], false)}\n\n🎯 انحياز اليوم: ${label(bias, false)}\n💪 قوة الاتجاه H1: ${strength}${adx == null ? '' : ` (ADX ${adx.toFixed(1)})`}\n📊 RSI H1: ${rsi == null ? '—' : rsi.toFixed(1)}\n\n🧱 أهم منطقة على H1\n• الدعم: ${fmt(lv.support)}\n• المقاومة: ${fmt(lv.resistance)}\n\n📌 خطة اليوم\n${plan}\n\n⚠️ أعد فحص الخطة بعد الحركات الكبيرة أو الأخبار القوية. التحليل للمساعدة في القرار وليس ضمانًا للربح.`;
 }
 
 module.exports = function registerDailyGoldPlan(bot) {
