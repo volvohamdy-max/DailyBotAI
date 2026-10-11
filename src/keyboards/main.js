@@ -1,48 +1,58 @@
 const { Markup } = require('telegraf');
 const { tByLang } = require('../utils/i18n');
 
-const mainKeyboard = (
-  language = 'ar',
-  isAdmin = false,
-  isVip = false
-) => {
-  const { buttons } = tByLang(language);
-
+const mainKeyboard = (language = 'ar', isAdmin = false, isVip = false) => {
   const rows = [
-    [language === 'en' ? '🥇 Gold Analysis' : '🥇 تحليل الذهب'],
-    [language === 'en' ? '💰 Available Gold Trades' : '💰 صفقات الذهب المتاحة'],
-    [language === 'en' ? '🧱 Gold Support & Resistance' : '🧱 دعم ومقاومة الذهب'],
-    [language === 'en' ? '🥇 Check Your Trade' : '🥇 اختبر صفقتك'],
-    [language === 'en' ? '🤖 Monitor My Trade' : '🤖 راقب صفقتي'],
-    [buttons.tradeNow, buttons.bestOpportunity],
-    [buttons.marketCenter, buttons.alertsCenter],
-    [buttons.accountCenter, buttons.more]
+    [language === 'en' ? '🥇 Gold Center' : '🥇 مركز الذهب', language === 'en' ? '⚡ Trading Center' : '⚡ مركز التداول'],
+    [language === 'en' ? '📊 Market Center' : '📊 مركز السوق', language === 'en' ? '🔔 Alerts' : '🔔 التنبيهات'],
+    [language === 'en' ? '👤 My Account' : '👤 حسابي']
   ];
-  if (isVip || isAdmin) rows.splice(4, 0, [language === 'en' ? '🧠 Market Intelligence' : '🧠 مركز ذكاء السوق']);
   if (isAdmin) rows.push(['🎛️ لوحة الأدمن']);
-
   return Markup.keyboard(rows).resize();
 };
 
-const marketKeyboard = (language = 'ar', isAdmin = false) => {
+const goldCenterKeyboard = (language = 'ar') => Markup.keyboard([
+  [language === 'en' ? '🥇 Gold Analysis' : '🥇 تحليل الذهب', language === 'en' ? '💰 Available Gold Trades' : '💰 صفقات الذهب المتاحة'],
+  [language === 'en' ? '🧱 Gold Support & Resistance' : '🧱 دعم ومقاومة الذهب', language === 'en' ? '⭐ Best Gold Trade Now' : '⭐ أفضل صفقة ذهب الآن'],
+  [language === 'en' ? '🔙 Back' : '🔙 رجوع']
+]).resize();
+
+const tradingCenterKeyboard = (language = 'ar') => {
+  const { buttons } = tByLang(language);
+  return Markup.keyboard([
+    [buttons.tradeNow, buttons.bestOpportunity],
+    [language === 'en' ? '🥇 Check Your Trade' : '🥇 اختبر صفقتك', language === 'en' ? '🤖 Monitor My Trade' : '🤖 راقب صفقتي'],
+    [language === 'en' ? '🔙 Back' : '🔙 رجوع']
+  ]).resize();
+};
+
+const marketKeyboard = (language = 'ar', isAdmin = false, isVip = false) => {
   const { buttons } = tByLang(language);
   const rows = [
     [buttons.scanner, buttons.marketMap],
-    [language === 'en' ? '🧪 My Strategy' : '🧪 استراتيجيتي'],
     [buttons.trendHunter, buttons.analysis],
     [language === 'en' ? '📡 Opportunity Radar' : '📡 رادار الفرص'],
-    [language === 'en' ? '🧠 Adaptive Intelligence' : '🧠 الذكاء المتكيف'],
-    [buttons.signalLab],
+    [language === 'en' ? '🧠 Advanced Tools' : '🧠 أدوات متقدمة'],
     [buttons.back]
   ];
+  if (isVip || isAdmin) rows.splice(3, 0, [language === 'en' ? '🧠 Market Intelligence' : '🧠 مركز ذكاء السوق']);
   if (isAdmin) rows.unshift([language === 'en' ? '📊 Bot Results' : '📊 نتائج البوت']);
   return Markup.keyboard(rows).resize();
 };
 
+const advancedToolsKeyboard = (language = 'ar') => {
+  const { buttons } = tByLang(language);
+  return Markup.keyboard([
+    [language === 'en' ? '🧪 My Strategy' : '🧪 استراتيجيتي', buttons.signalLab],
+    [language === 'en' ? '🧠 Adaptive Intelligence' : '🧠 الذكاء المتكيف'],
+    [language === 'en' ? '🔙 Back to Market' : '🔙 رجوع للسوق']
+  ]).resize();
+};
+
 const alertsKeyboard = (language = 'ar') => { const { buttons } = tByLang(language); return Markup.keyboard([[buttons.alerts],[buttons.back]]).resize(); };
-const accountKeyboard = (language = 'ar') => { const { buttons } = tByLang(language); return Markup.keyboard([[buttons.account, buttons.vip],[buttons.referral, buttons.language],[buttons.back]]).resize(); };
-const moreKeyboard = (language = 'ar') => { const { buttons } = tByLang(language); return Markup.keyboard([[buttons.support, buttons.settings],[buttons.back]]).resize(); };
+const accountKeyboard = (language = 'ar') => { const { buttons } = tByLang(language); return Markup.keyboard([[buttons.account, buttons.vip],[buttons.referral, buttons.language],[buttons.settings, buttons.support],[buttons.back]]).resize(); };
+const moreKeyboard = accountKeyboard;
 const settingsKeyboard = (language = 'ar') => { const { buttons } = tByLang(language); return Markup.keyboard([[buttons.language],[buttons.back]]).resize(); };
 const vipKeyboard = () => Markup.inlineKeyboard([[Markup.button.callback('Monthly - 30 days / شهري', 'vip_monthly')],[Markup.button.callback('Quarterly - 90 days / ثلاثي', 'vip_quarterly')],[Markup.button.callback('Yearly - 365 days / سنوي', 'vip_yearly')]]);
 
-module.exports = { mainKeyboard, marketKeyboard, alertsKeyboard, accountKeyboard, moreKeyboard, settingsKeyboard, vipKeyboard };
+module.exports = { mainKeyboard, goldCenterKeyboard, tradingCenterKeyboard, marketKeyboard, advancedToolsKeyboard, alertsKeyboard, accountKeyboard, moreKeyboard, settingsKeyboard, vipKeyboard };
