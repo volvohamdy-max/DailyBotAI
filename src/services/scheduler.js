@@ -13,10 +13,11 @@ const { ensureOpenTradesAnnounced } = require('./vipTradeEntryGuard');
 const { checkEconomicNews } = require('./newsService');
 const { checkUpcomingNewsReliable } = require('./reliableUpcomingNews');
 const { refreshDailyNewsBrief } = require('./dailyNewsBriefService');
+const { runGoldZoneAutoAlerts } = require('./goldZoneAutoAlerts');
 
 let scanRunning=false, newsRunning=false, newsBriefRefreshRunning=false, monitorRunning=false;
 let copilotMonitorRunning=false, radarMonitorRunning=false, opportunityTeaserRunning=false, shadowSystemRunning=false;
-let vipEntryGuardRunning=false;
+let vipEntryGuardRunning=false, goldZoneAlertRunning=false;
 
 function startScheduler(bot) {
   console.log('⏰ Scheduler started');
@@ -27,9 +28,12 @@ function startScheduler(bot) {
   cron.schedule('*/10 * * * *',async()=>{if(newsBriefRefreshRunning){console.log('⚠️ Previous daily news brief refresh still running');return;}newsBriefRefreshRunning=true;try{await refreshDailyNewsBrief(bot);}catch(err){console.log('❌ Daily news brief refresh error:',err.message);}finally{newsBriefRefreshRunning=false;}});
   cron.schedule('5 * * * *',async()=>{try{const expiredUsers=expireVipUsers();if(expiredUsers.length>0){console.log(`✅ Expired VIP users: ${expiredUsers.length}`);for(const user of expiredUsers){try{await bot.telegram.sendMessage(user.telegram_id,'⏰ انتهى اشتراك VIP الخاص بك.\n\nيمكنك التجديد من خلال:\n💎 /vip');}catch(e){console.log('VIP message error:',e.message);}}}}catch(err){console.log('❌ VIP expiration error:',err.message);}});
 
+  // Gold Zone Radar is independent from the paused live scalper strategies.
+  // It only alerts VIP users when price reaches a qualified multi-timeframe zone.
+  cron.schedule('*/2 * * * *',async()=>{if(isForexWeekend())return;if(goldZoneAlertRunning){console.log('⚠️ Previous Gold Zone Radar scan still running - skipped');return;}goldZoneAlertRunning=true;try{await runGoldZoneAutoAlerts(bot);}catch(err){console.log('❌ Gold Zone Radar scheduler:',err.message);}finally{goldZoneAlertRunning=false;}});
+
   // Hourly / Strong Market Bias automatic trades intentionally disabled.
   // The service file is kept for history/research, but the live scheduler never calls it.
-
   cron.schedule('* * * * *',async()=>{if(isForexWeekend()){console.log('🌙 Weekend: Gold Auto Scalper paused');return;}if(scanRunning){console.log('⚠️ Previous Gold Scalper scan still running - skipped');return;}scanRunning=true;const startTime=Date.now();console.log('⚡ AUTO GOLD SCALPER SCAN');try{await scanMarket(bot);console.log(`✅ Gold Scalper scan finished in ${((Date.now()-startTime)/1000).toFixed(1)}s`);}catch(err){console.log('❌ Gold Scalper scan error:',err.message);}finally{scanRunning=false;}});
   let smartAlertRunning=false;
   cron.schedule('*/5 * * * *',async()=>{if(smartAlertRunning){console.log('⚠️ Previous Smart Scanner Alert still running - skipped');return;}smartAlertRunning=true;console.log('🚨 PERSONALIZED SMART ALERT TRIGGERED');try{await runPersonalizedAlerts(bot);console.log('✅ Smart Scanner Alert finished');}catch(err){console.log('❌ Smart Scanner Alert error:',err.message);}finally{smartAlertRunning=false;}});
