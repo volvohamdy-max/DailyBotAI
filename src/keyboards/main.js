@@ -4,9 +4,9 @@ const { tByLang } = require('../utils/i18n');
 const mainKeyboard = (language = 'ar', isAdmin = false, isVip = false) => {
   const rows = [
     [language === 'en' ? '🥇 Gold Center' : '🥇 مركز الذهب', language === 'en' ? '⚡ Trading Center' : '⚡ مركز التداول'],
-    [language === 'en' ? '📊 Market Center' : '📊 مركز السوق', language === 'en' ? '🔔 Alerts' : '🔔 التنبيهات'],
+    [language === 'en' ? '📊 Market Center' : '📊 مركز السوق', language === 'en' ? '🔔 Alerts Center' : '🔔 مركز التنبيهات'],
     [language === 'en' ? '🎓 Trading Academy' : '🎓 أكاديمية التداول'],
-    [language === 'en' ? '👤 My Account' : '👤 حسابي']
+    [language === 'en' ? '👤 Account Center' : '👤 مركز الحساب']
   ];
   if (isAdmin) rows.push(['🎛️ لوحة الأدمن']);
   return Markup.keyboard(rows).resize();
