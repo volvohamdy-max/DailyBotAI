@@ -81,20 +81,16 @@ function initDatabase() {
       stop_loss REAL,
       target1 REAL,
       target2 REAL,
-
       status TEXT NOT NULL DEFAULT 'watching',
       health_status TEXT NOT NULL DEFAULT 'NEW',
       last_price REAL,
       last_score INTEGER,
       last_reason TEXT,
-
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE INDEX IF NOT EXISTS idx_copilot_user_status
-      ON copilot_trades (telegram_id, status);
-
+    CREATE INDEX IF NOT EXISTS idx_copilot_user_status ON copilot_trades (telegram_id, status);
 
     CREATE TABLE IF NOT EXISTS news_alerts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -122,8 +118,7 @@ function initDatabase() {
       sent_at TEXT NOT NULL
     );
 
-    CREATE INDEX IF NOT EXISTS idx_alert_history_lookup
-      ON alert_history (telegram_id, pair, action, sent_at);
+    CREATE INDEX IF NOT EXISTS idx_alert_history_lookup ON alert_history (telegram_id, pair, action, sent_at);
 
     CREATE TABLE IF NOT EXISTS trend_watches (
       telegram_id TEXT NOT NULL,
@@ -132,9 +127,18 @@ function initDatabase() {
       PRIMARY KEY (telegram_id, pair)
     );
 
-    CREATE INDEX IF NOT EXISTS idx_trend_watches_pair
-      ON trend_watches (pair);
+    CREATE INDEX IF NOT EXISTS idx_trend_watches_pair ON trend_watches (pair);
 
+    CREATE TABLE IF NOT EXISTS academy_progress (
+      telegram_id TEXT NOT NULL,
+      school_key TEXT NOT NULL,
+      lesson_index INTEGER NOT NULL,
+      score INTEGER NOT NULL DEFAULT 100,
+      completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (telegram_id, school_key, lesson_index)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_academy_progress_user ON academy_progress (telegram_id);
   `);
 
   // Safe migration for existing databases.
