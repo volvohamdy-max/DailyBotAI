@@ -5,6 +5,7 @@ const mainKeyboard = (language = 'ar', isAdmin = false, isVip = false) => {
   const rows = [
     [language === 'en' ? '🥇 Gold Center' : '🥇 مركز الذهب', language === 'en' ? '⚡ Trading Center' : '⚡ مركز التداول'],
     [language === 'en' ? '📊 Market Center' : '📊 مركز السوق', language === 'en' ? '🔔 Alerts' : '🔔 التنبيهات'],
+    [language === 'en' ? '🎓 Trading Academy' : '🎓 أكاديمية التداول'],
     [language === 'en' ? '👤 My Account' : '👤 حسابي']
   ];
   if (isAdmin) rows.push(['🎛️ لوحة الأدمن']);
