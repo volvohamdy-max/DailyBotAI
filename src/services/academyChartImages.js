@@ -1,0 +1,107 @@
+const axios = require('axios');
+
+const CHARTS = {
+  candles: {
+    title: 'Rejection + Bullish Engulfing',
+    labels: ['1','2','3','4','5','6','7','8','9','10'],
+    candles: [
+      [100,101,98,99],[99,100,96,97],[97,98,94,95],[95,96,91,93],
+      [93,94,88,92.5],[92.5,96,92,95.5],[95.5,96,93.5,94],[94,99,93.8,98.5],
+      [98.5,101,98,100.5],[100.5,103,100,102]
+    ],
+    annotation: 'Support + rejection + engulfing confirmation'
+  },
+  liquidity: {
+    title: 'Liquidity Sweep + CHoCH',
+    labels: ['1','2','3','4','5','6','7','8','9','10'],
+    candles: [
+      [94,97,93,96],[96,100,95,99],[99,101,97,98],[98,101,97,100],
+      [100,104,99,100.5],[100.5,101,96,97],[97,98,93,94],[94,96,92,95],
+      [95,96,90,91],[91,93,89,90]
+    ],
+    annotation: 'Equal highs -> sweep -> rejection -> bearish shift'
+  },
+  fvg: {
+    title: 'Bullish Fair Value Gap (FVG)',
+    labels: ['1','2','3','4','5','6','7','8','9'],
+    candles: [
+      [91,93,90,92],[92,94,91,93],[93,94,92,93.5],[93.5,101,93,100],
+      [100,104,99,103],[103,105,101.5,104],[104,105,99,100],[100,102,98.5,101],[101,105,100.5,104]
+    ],
+    annotation: 'Displacement leaves imbalance; watch the retest zone'
+  },
+  orderblock: {
+    title: 'Bullish Order Block + Retest',
+    labels: ['1','2','3','4','5','6','7','8','9'],
+    candles: [
+      [96,97,94,95],[95,96,92,93],[93,94,90,91],[91,92,89,90],
+      [90,99,89.5,98],[98,103,97,102],[102,104,100,103],[103,104,95,96],[96,101,95,100]
+    ],
+    annotation: 'Last bearish zone before displacement -> retest -> reaction'
+  },
+  support: {
+    title: 'Support / Resistance Zones',
+    labels: ['1','2','3','4','5','6','7','8','9','10'],
+    candles: [
+      [94,98,93,97],[97,101,96,100],[100,102,98,99],[99,100,94,95],[95,96,91,92],
+      [92,96,91,95],[95,100,94,99],[99,102,98,100],[100,101,95,96],[96,99,94,98]
+    ],
+    annotation: 'Read levels as zones, then wait for reaction/confirmation'
+  },
+  structure: {
+    title: 'Market Structure: BOS / CHoCH',
+    labels: ['1','2','3','4','5','6','7','8','9','10'],
+    candles: [
+      [90,94,89,93],[93,97,92,96],[96,97,93,94],[94,100,93,99],[99,100,96,97],
+      [97,104,96,103],[103,104,99,100],[100,101,95,96],[96,97,91,92],[92,94,89,90]
+    ],
+    annotation: 'Higher highs/lows -> BOS; break of protected low -> CHoCH'
+  },
+  fibonacci: {
+    title: 'Fibonacci Retracement Context',
+    labels: ['1','2','3','4','5','6','7','8','9'],
+    candles: [
+      [90,93,89,92],[92,96,91,95],[95,100,94,99],[99,105,98,104],[104,106,102,105],
+      [105,106,100,101],[101,102,97,98],[98,100,96,99],[99,103,98,102]
+    ],
+    annotation: 'Impulse -> retracement -> confluence near 50-61.8% -> confirmation'
+  },
+  goldflow: {
+    title: 'Gold Analysis Workflow',
+    labels: ['D1','H4','H1','M15','M5','ENTRY'],
+    line: [90,94,97,95,98,102],
+    annotation: 'Bias -> zones -> structure/liquidity -> trigger -> risk plan'
+  }
+};
+
+function chartConfig(key) {
+  const c = CHARTS[key];
+  if (!c) return null;
+  if (c.line) return {
+    type: 'line',
+    data: { labels: c.labels, datasets: [{ label: 'Top-down workflow', data: c.line, fill: false, borderWidth: 4, pointRadius: 6 }] },
+    options: { plugins: { title: { display: true, text: c.title, font: { size: 24 } }, subtitle: { display: true, text: c.annotation, font: { size: 15 } }, legend: { display: false } }, scales: { y: { display: false } } }
+  };
+  return {
+    type: 'candlestick',
+    data: { labels: c.labels, datasets: [{ label: c.title, data: c.candles.map((x,i)=>({x:i,o:x[0],h:x[1],l:x[2],c:x[3]})) }] },
+    options: { plugins: { title: { display: true, text: c.title, font: { size: 24 } }, subtitle: { display: true, text: c.annotation, font: { size: 15 } }, legend: { display: false } } }
+  };
+}
+
+async function getAcademyChartImage(key) {
+  const config = chartConfig(key);
+  if (!config) return null;
+  const url = 'https://quickchart.io/chart';
+  const response = await axios.post(url, {
+    width: 1000,
+    height: 600,
+    backgroundColor: 'white',
+    format: 'png',
+    version: '4',
+    chart: config
+  }, { responseType: 'arraybuffer', timeout: 15000 });
+  return Buffer.from(response.data);
+}
+
+module.exports = { getAcademyChartImage };
