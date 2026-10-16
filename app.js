@@ -52,5 +52,8 @@ require('./src/services/installBinanceGoldLivePrice');
 // Operational provider-pressure guards only.
 require('./src/services/installProviderPressureGuards');
 
+// Self-healing 08:00 Cairo daily economic brief/pin watchdog.
+require('./src/services/installDailyNewsBriefReliability');
+
 console.log('Loading Telegram Forex AI bot source...');
 require(appPath);
