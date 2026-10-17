@@ -1,108 +1,17 @@
 const { analyzePair } = require('../services/analysisService');
 const { getGoldCandlesResilient } = require('../services/goldCandleRecovery');
 const { getMultiSourceCalendar, isHighImpact } = require('../services/newsCalendarGate');
+const { getPrice } = require('../services/marketService');
 
-function n(v) { const x = Number(v); return Number.isFinite(x) ? x : null; }
-function direction(a) {
-  const i = a?.indicators || {};
-  let buy = 0, sell = 0;
-  if (n(i.ema20) != null && n(i.ema50) != null) n(i.ema20) > n(i.ema50) ? buy++ : sell++;
-  if (n(i.rsi) != null) n(i.rsi) >= 50 ? buy++ : sell++;
-  if (i.macd && n(i.macd.macd) != null && n(i.macd.signal) != null) n(i.macd.macd) >= n(i.macd.signal) ? buy++ : sell++;
-  if (buy >= 2 && buy > sell) return 'BUY';
-  if (sell >= 2 && sell > buy) return 'SELL';
-  return 'NEUTRAL';
-}
-function fmt(v) { return n(v) == null ? '—' : n(v).toFixed(2); }
-function label(d, en) { return d === 'BUY' ? (en ? '🟢 Bullish' : '🟢 صاعد') : d === 'SELL' ? (en ? '🔴 Bearish' : '🔴 هابط') : (en ? '⚪ Neutral' : '⚪ محايد'); }
-function levels(candles) {
-  const rows = (candles || []).slice(-60);
-  if (!rows.length) return { support: null, resistance: null };
-  const lows = rows.map(x => n(x.low)).filter(Number.isFinite);
-  const highs = rows.map(x => n(x.high)).filter(Number.isFinite);
-  return { support: lows.length ? Math.min(...lows) : null, resistance: highs.length ? Math.max(...highs) : null };
-}
-function cairoDayKey(date) {
-  try { return new Intl.DateTimeFormat('en-CA', { timeZone:'Africa/Cairo', year:'numeric', month:'2-digit', day:'2-digit' }).format(date); }
-  catch { return date.toISOString().slice(0,10); }
-}
-function cairoTime(date) {
-  try { return new Intl.DateTimeFormat('en-GB', { timeZone:'Africa/Cairo', hour:'2-digit', minute:'2-digit', hour12:false }).format(date); }
-  catch { return date.toISOString().slice(11,16); }
-}
-function eventImpact(e) {
-  const x = String(e?.impact || '').toLowerCase();
-  if (isHighImpact(e) || x === 'high') return 'high';
-  if (x === 'medium' || x === 'med') return 'medium';
-  return 'low';
-}
-async function goldNewsSection(en = false) {
-  try {
-    const cal = await getMultiSourceCalendar(false);
-    const now = new Date();
-    const today = cairoDayKey(now);
-    const events = (cal?.data || []).filter(e => {
-      const d = new Date(e.date);
-      if (!Number.isFinite(d.getTime()) || cairoDayKey(d) !== today) return false;
-      const cur = String(e.currency || '').toUpperCase();
-      return cur === 'USD' && ['high','medium'].includes(eventImpact(e));
-    }).sort((a,b) => new Date(a.date) - new Date(b.date));
-    const upcoming = events.filter(e => new Date(e.date).getTime() >= Date.now() - 15 * 60 * 1000);
-    const important = upcoming.slice(0,4);
-    if (!important.length) return en
-      ? `📰 GOLD NEWS RISK\n• No upcoming medium/high-impact USD event found for the rest of today.`
-      : `📰 أخبار مؤثرة على الذهب\n• لا توجد أخبار دولار متوسطة/عالية التأثير متبقية اليوم حسب التقويم الحالي.`;
-    const lines = important.map(e => {
-      const high = eventImpact(e) === 'high';
-      const d = new Date(e.date);
-      const mins = Math.round((d.getTime() - Date.now()) / 60000);
-      const proximity = mins >= 0 && mins <= 60 ? (en ? ' ⚠️ SOON' : ' ⚠️ قريب') : '';
-      return `• ${high ? '🔴' : '🟠'} ${cairoTime(d)} — ${String(e.title || 'USD event').trim()}${proximity}`;
-    });
-    const dangerSoon = important.some(e => eventImpact(e) === 'high' && new Date(e.date).getTime() >= Date.now() && new Date(e.date).getTime() - Date.now() <= 60 * 60 * 1000);
-    const warning = dangerSoon
-      ? (en ? '\n🚨 High-impact USD news is within 60 minutes. Avoid fresh gold entries around the release and wait for volatility to settle.' : '\n🚨 يوجد خبر دولار قوي خلال 60 دقيقة. يفضل عدم فتح دخول جديد على الذهب قرب الخبر وانتظار هدوء الحركة.')
-      : (en ? '\n⚠️ Check these times before entering gold; USD releases can quickly change the technical setup.' : '\n⚠️ راجع المواعيد دي قبل دخول الذهب لأن أخبار الدولار ممكن تغيّر الصورة الفنية بسرعة.');
-    return `${en ? '📰 GOLD NEWS RISK' : '📰 أخبار مؤثرة على الذهب'}\n${lines.join('\n')}${warning}`;
-  } catch (error) {
-    console.log('⚠️ DAILY GOLD NEWS:', error.message);
-    return en ? '📰 GOLD NEWS RISK\n• News calendar is temporarily unavailable.' : '📰 أخبار مؤثرة على الذهب\n• تعذر قراءة التقويم الاقتصادي مؤقتًا.';
-  }
-}
-
-async function buildDailyGoldPlan(en = false) {
-  const frames = ['1day', '4h', '1h'];
-  const analyses = {};
-  for (const tf of frames) analyses[tf] = await analyzePair('XAUUSD', tf);
-  const dirs = Object.fromEntries(frames.map(tf => [tf, direction(analyses[tf])]));
-  const buyCount = Object.values(dirs).filter(x => x === 'BUY').length;
-  const sellCount = Object.values(dirs).filter(x => x === 'SELL').length;
-  const bias = buyCount >= 2 ? 'BUY' : sellCount >= 2 ? 'SELL' : 'NEUTRAL';
-  const h1 = analyses['1h']?.indicators || {};
-  const candles = await getGoldCandlesResilient('1h');
-  const lv = levels(candles);
-  const news = await goldNewsSection(en);
-  const adx = n(h1.adx);
-  const rsi = n(h1.rsi);
-  const strength = adx == null ? (en ? 'Unknown' : 'غير محددة') : adx >= 25 ? (en ? 'Strong' : 'قوية') : adx >= 18 ? (en ? 'Medium' : 'متوسطة') : (en ? 'Weak / range risk' : 'ضعيفة / احتمال تذبذب');
-  const plan = bias === 'BUY'
-    ? (en ? 'Prefer buying pullbacks while the multi-timeframe bullish structure remains intact.' : 'الأفضل اليوم البحث عن شراء من التصحيحات طالما هيكل الفريمات ما زال صاعدًا.')
-    : bias === 'SELL'
-      ? (en ? 'Prefer selling rebounds while the multi-timeframe bearish structure remains intact.' : 'الأفضل اليوم البحث عن بيع من الارتفاعات طالما هيكل الفريمات ما زال هابطًا.')
-      : (en ? 'No clear multi-timeframe edge. Waiting for alignment is preferable to forcing a trade.' : 'لا يوجد توافق قوي بين الفريمات حاليًا؛ الانتظار أفضل من إجبار صفقة.');
-
-  if (en) return `🎯 DAILY GOLD PLAN — XAUUSD\n━━━━━━━━━━━━━━━━━━\n\n💵 Live price: ${fmt(h1.lastPrice)}\n\n🧭 MULTI-TIMEFRAME DIRECTION\n• D1: ${label(dirs['1day'], true)}\n• H4: ${label(dirs['4h'], true)}\n• H1: ${label(dirs['1h'], true)}\n\n🎯 Daily bias: ${label(bias, true)}\n💪 Trend strength H1: ${strength}${adx == null ? '' : ` (ADX ${adx.toFixed(1)})`}\n📊 RSI H1: ${rsi == null ? '—' : rsi.toFixed(1)}\n\n🧱 KEY H1 ZONE\n• Support: ${fmt(lv.support)}\n• Resistance: ${fmt(lv.resistance)}\n\n${news}\n\n📌 TODAY'S PLAN\n${plan}\n\n⚠️ Recheck the plan after major market moves or high-impact news. This is analytical guidance, not a profit guarantee.`;
-  return `🎯 خطة الذهب اليومية — XAUUSD\n━━━━━━━━━━━━━━━━━━\n\n💵 السعر اللحظي: ${fmt(h1.lastPrice)}\n\n🧭 اتجاه الفريمات\n• اليومي D1: ${label(dirs['1day'], false)}\n• 4 ساعات H4: ${label(dirs['4h'], false)}\n• الساعة H1: ${label(dirs['1h'], false)}\n\n🎯 انحياز اليوم: ${label(bias, false)}\n💪 قوة الاتجاه H1: ${strength}${adx == null ? '' : ` (ADX ${adx.toFixed(1)})`}\n📊 RSI H1: ${rsi == null ? '—' : rsi.toFixed(1)}\n\n🧱 أهم منطقة على H1\n• الدعم: ${fmt(lv.support)}\n• المقاومة: ${fmt(lv.resistance)}\n\n${news}\n\n📌 خطة اليوم\n${plan}\n\n⚠️ أعد فحص الخطة بعد الحركات الكبيرة أو الأخبار القوية. التحليل للمساعدة في القرار وليس ضمانًا للربح.`;
-}
-
-module.exports = function registerDailyGoldPlan(bot) {
-  bot.hears(['🎯 خطة الذهب اليومية', '🎯 Daily Gold Plan'], async ctx => {
-    const en = ctx.state?.language === 'en';
-    await ctx.reply(en ? '🔍 Building today’s gold plan across D1, H4 and H1...' : '🔍 جاري تجهيز خطة الذهب لليوم على D1 وH4 وH1...');
-    try { return ctx.reply(await buildDailyGoldPlan(en)); }
-    catch (error) {
-      console.log('❌ DAILY GOLD PLAN:', error.message);
-      return ctx.reply(en ? '❌ Daily gold plan is temporarily unavailable. Try again shortly.' : '❌ تعذر تجهيز خطة الذهب اليومية مؤقتًا. جرّب مرة أخرى بعد قليل.');
-    }
-  });
-};
+function n(v){const x=Number(v);return Number.isFinite(x)?x:null;}function fmt(v){return n(v)==null?'—':n(v).toFixed(2);}function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function direction(a){const i=a?.indicators||{};let buy=0,sell=0;if(n(i.ema20)!=null&&n(i.ema50)!=null)n(i.ema20)>n(i.ema50)?buy++:sell++;if(n(i.rsi)!=null)n(i.rsi)>=50?buy++:sell++;if(i.macd&&n(i.macd.macd)!=null&&n(i.macd.signal)!=null)n(i.macd.macd)>=n(i.macd.signal)?buy++:sell++;if(buy>=2&&buy>sell)return'BUY';if(sell>=2&&sell>buy)return'SELL';return'NEUTRAL';}
+function label(d,en){return d==='BUY'?(en?'🟢 Bullish':'🟢 صاعد'):d==='SELL'?(en?'🔴 Bearish':'🔴 هابط'):(en?'⚪ Neutral':'⚪ محايد');}
+function localZones(candles,price){const rows=(candles||[]).slice(-120),supports=[],resistances=[];for(let i=2;i<rows.length-2;i++){const lo=n(rows[i].low),hi=n(rows[i].high);if(lo==null||hi==null)continue;const lows=rows.slice(i-2,i+3).map(x=>n(x.low)).filter(Number.isFinite),highs=rows.slice(i-2,i+3).map(x=>n(x.high)).filter(Number.isFinite);if(lows.length===5&&lo===Math.min(...lows)&&lo<price)supports.push(lo);if(highs.length===5&&hi===Math.max(...highs)&&hi>price)resistances.push(hi);}const cluster=(arr)=>{const groups=[];for(const v of arr.sort((a,b)=>a-b)){let g=groups.find(x=>Math.abs(x.mean-v)/price*100<=.12);if(!g){g={values:[],mean:v};groups.push(g);}g.values.push(v);g.mean=g.values.reduce((s,x)=>s+x,0)/g.values.length;}return groups.map(g=>({price:g.mean,touches:g.values.length,distance:Math.abs(g.mean-price)})).sort((a,b)=>a.distance-b.distance||b.touches-a.touches);};return{supports:cluster(supports).slice(0,3),resistances:cluster(resistances).slice(0,3)};}
+function cairoDayKey(date){try{return new Intl.DateTimeFormat('en-CA',{timeZone:'Africa/Cairo',year:'numeric',month:'2-digit',day:'2-digit'}).format(date);}catch{return date.toISOString().slice(0,10);}}function cairoTime(date){try{return new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Cairo',hour:'2-digit',minute:'2-digit',hour12:false}).format(date);}catch{return date.toISOString().slice(11,16);}}
+function eventImpact(e){const x=String(e?.impact||'').toLowerCase();if(isHighImpact(e)||x==='high')return'high';if(x==='medium'||x==='med')return'medium';return'low';}
+async function goldNewsData(){try{const cal=await getMultiSourceCalendar(false),now=Date.now(),today=cairoDayKey(new Date());const events=(cal?.data||[]).filter(e=>{const d=new Date(e.date);return Number.isFinite(d.getTime())&&cairoDayKey(d)===today&&String(e.currency||'').toUpperCase()==='USD'&&['high','medium'].includes(eventImpact(e));}).sort((a,b)=>new Date(a.date)-new Date(b.date));const upcoming=events.filter(e=>new Date(e.date).getTime()>=now-15*60000).slice(0,4),danger=upcoming.find(e=>eventImpact(e)==='high'&&new Date(e.date).getTime()>=now&&new Date(e.date).getTime()-now<=60*60000);return{events:upcoming,danger};}catch(error){console.log('⚠️ DAILY GOLD NEWS:',error.message);return{events:[],danger:null,unavailable:true};}}
+function newsText(news,en){if(news.unavailable)return en?'📰 NEWS: calendar temporarily unavailable.':'📰 الأخبار: تعذر قراءة التقويم مؤقتًا.';if(!news.events.length)return en?'📰 NEWS: no upcoming medium/high USD events today.':'📰 الأخبار: لا توجد أخبار USD متوسطة/قوية متبقية اليوم.';const lines=news.events.map(e=>`• ${eventImpact(e)==='high'?'🔴':'🟠'} ${cairoTime(new Date(e.date))} — ${String(e.title||'USD event').trim()}`);return`${en?'📰 GOLD NEWS RISK':'📰 أخبار مؤثرة على الذهب'}\n${lines.join('\n')}${news.danger?(en?'\n🚨 HIGH IMPACT within 60m — new entries should wait.':'\n🚨 خبر قوي خلال 60 دقيقة — الأفضل إيقاف الدخول الجديد قرب الخبر.') : ''}`;}
+async function buildDailyGoldPlan(en=false){const frames=['1day','4h','1h'];const[priceRaw,d1,h4,h1,candles,news]=await Promise.all([getPrice('XAUUSD'),analyzePair('XAUUSD','1day'),analyzePair('XAUUSD','4h'),analyzePair('XAUUSD','1h'),getGoldCandlesResilient('1h',140),goldNewsData()]);const analyses={'1day':d1,'4h':h4,'1h':h1},dirs=Object.fromEntries(frames.map(tf=>[tf,direction(analyses[tf])])),buyCount=Object.values(dirs).filter(x=>x==='BUY').length,sellCount=Object.values(dirs).filter(x=>x==='SELL').length,bias=buyCount>=2?'BUY':sellCount>=2?'SELL':'NEUTRAL',price=n(priceRaw)??n(h1?.lastPrice);if(!(price>0))throw new Error('Invalid gold price');const zones=localZones(candles,price),support=zones.supports[0]||null,resistance=zones.resistances[0]||null,ind=h1?.indicators||{},adx=n(ind.adx),rsi=n(ind.rsi);let score=50+(bias==='NEUTRAL'?0:20)+(dirs['1day']===bias?10:0)+(dirs['4h']===bias?12:0)+(dirs['1h']===bias?8:0)+(adx>=25?8:adx!=null&&adx<18?-8:0)-(news.danger?30:0);score=clamp(Math.round(score),0,100);const strength=adx==null?(en?'Unknown':'غير محددة'):adx>=25?(en?'Strong':'قوية'):adx>=18?(en?'Medium':'متوسطة'):(en?'Weak / range':'ضعيفة / تذبذب');let invalidation='—',buyScenario='—',sellScenario='—';if(support)buyScenario=en?`Watch ${fmt(support.price)} support; buy only after bullish confirmation while price holds above it.`:`راقب دعم ${fmt(support.price)}؛ الشراء فقط بعد تأكيد صاعد مع الحفاظ فوق المنطقة.`;if(resistance)sellScenario=en?`Watch ${fmt(resistance.price)} resistance; sell only after bearish rejection/confirmation.`:`راقب مقاومة ${fmt(resistance.price)}؛ البيع فقط بعد رفض/تأكيد هابط.`;if(bias==='BUY'&&support)invalidation=en?`Sustained H1 break below ${fmt(support.price)} weakens today's bullish plan.`:`إغلاق H1 واضح أسفل ${fmt(support.price)} يضعف سيناريو الشراء اليوم.`;else if(bias==='SELL'&&resistance)invalidation=en?`Sustained H1 break above ${fmt(resistance.price)} weakens today's bearish plan.`:`إغلاق H1 واضح أعلى ${fmt(resistance.price)} يضعف سيناريو البيع اليوم.`;else invalidation=en?'Wait for D1/H4/H1 alignment before adopting a directional plan.':'انتظر توافق D1/H4/H1 قبل اعتماد اتجاه واضح.';let decision;if(news.danger)decision=en?'🚨 NEWS BLOCK — wait until the release volatility settles.':'🚨 NEWS BLOCK — انتظر انتهاء الخبر وهدوء الحركة.';else if(bias==='BUY'&&score>=70)decision=en?'🟢 BUY BIAS — prefer confirmed pullbacks, not market chasing.':'🟢 BUY BIAS — الأفضل شراء التصحيحات المؤكدة وليس مطاردة السعر.';else if(bias==='SELL'&&score>=70)decision=en?'🔴 SELL BIAS — prefer confirmed rebounds, not market chasing.':'🔴 SELL BIAS — الأفضل بيع الارتدادات المؤكدة وليس مطاردة السعر.';else decision=en?'⚪ WAIT — current confluence is not strong enough to force a trade.':'⚪ WAIT — التوافق الحالي غير كافٍ لإجبار صفقة.';const zonesText=en?`• Support 1: ${support?`${fmt(support.price)} (${support.touches} touches)`:'—'}\n• Resistance 1: ${resistance?`${fmt(resistance.price)} (${resistance.touches} touches)`:'—'}`:`• أقرب دعم: ${support?`${fmt(support.price)} (${support.touches} لمسات)`:'—'}\n• أقرب مقاومة: ${resistance?`${fmt(resistance.price)} (${resistance.touches} لمسات)`:'—'}`;
+if(en)return`🎯 DAILY GOLD PLAN — XAUUSD\n━━━━━━━━━━━━━━━━━━\n💵 GoldAPI live price: ${fmt(price)}\n⭐ Plan quality: ${score}/100\n\n🧭 MULTI-TIMEFRAME\n• D1: ${label(dirs['1day'],true)}\n• H4: ${label(dirs['4h'],true)}\n• H1: ${label(dirs['1h'],true)}\n🎯 Daily bias: ${label(bias,true)}\n💪 H1 strength: ${strength}${adx==null?'':` (ADX ${adx.toFixed(1)})`} | RSI ${rsi==null?'—':rsi.toFixed(1)}\n\n🧱 NEAREST VALID H1 ZONES\n${zonesText}\n\n${newsText(news,true)}\n\n📌 PRIMARY DECISION\n${decision}\n\n🟢 BUY SCENARIO\n${buyScenario}\n\n🔴 SELL SCENARIO\n${sellScenario}\n\n🚫 INVALIDATION\n${invalidation}\n\n⚠️ Recheck after major moves/news. Analysis is decision support, not a guarantee.`;
+return`🎯 خطة الذهب اليومية — XAUUSD\n━━━━━━━━━━━━━━━━━━\n💵 سعر GoldAPI اللحظي: ${fmt(price)}\n⭐ جودة خطة اليوم: ${score}/100\n\n🧭 اتجاه الفريمات\n• D1: ${label(dirs['1day'],false)}\n• H4: ${label(dirs['4h'],false)}\n• H1: ${label(dirs['1h'],false)}\n🎯 انحياز اليوم: ${label(bias,false)}\n💪 قوة H1: ${strength}${adx==null?'':` (ADX ${adx.toFixed(1)})`} | RSI ${rsi==null?'—':rsi.toFixed(1)}\n\n🧱 أقرب مناطق H1 الصحيحة\n${zonesText}\n\n${newsText(news,false)}\n\n📌 القرار الأساسي\n${decision}\n\n🟢 سيناريو الشراء\n${buyScenario}\n\n🔴 سيناريو البيع\n${sellScenario}\n\n🚫 إلغاء سيناريو اليوم\n${invalidation}\n\n⚠️ أعد الفحص بعد الحركات الكبيرة أو الأخبار. التحليل للمساعدة في القرار وليس ضمانًا للربح.`;}
+module.exports=function registerDailyGoldPlan(bot){bot.hears(['🎯 خطة الذهب اليومية','🎯 Daily Gold Plan'],async ctx=>{const en=ctx.state?.language==='en';await ctx.reply(en?'🔍 Building today’s gold plan across D1, H4 and H1...':'🔍 جاري تجهيز خطة الذهب لليوم على D1 وH4 وH1...');try{return ctx.reply(await buildDailyGoldPlan(en));}catch(error){console.log('❌ DAILY GOLD PLAN:',error.message);return ctx.reply(en?'❌ Daily gold plan is temporarily unavailable. Try again shortly.':'❌ تعذر تجهيز خطة الذهب اليومية مؤقتًا. جرّب مرة أخرى بعد قليل.');}});};
