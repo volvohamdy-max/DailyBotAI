@@ -18,7 +18,8 @@ function lang(ctx) {
 function flags(ctx) {
   const user = findUser(ctx.from?.id);
   const isAdmin = (config.adminIds || []).map(String).includes(String(ctx.from?.id));
-  return { isAdmin, isVip: Boolean(user?.is_vip) };
+  const isVip = Boolean(user?.is_vip) && (!user?.vip_expires_at || new Date(user.vip_expires_at).getTime() > Date.now());
+  return { isAdmin, isVip };
 }
 
 function registerNavigationCenters(bot) {
@@ -49,23 +50,18 @@ function registerNavigationCenters(bot) {
     return ctx.reply(l === 'en' ? '📊 Market Center' : '📊 مركز السوق', marketKeyboard(l, isAdmin, isVip));
   });
 
-  // Center labels are deliberately different from the actual Alerts action
-  // so the navigation handler does not swallow the inner button.
+  // Center labels stay different from the actual Alerts action so the
+  // navigation handler never swallows the inner Alerts button.
   bot.hears(['🔔 مركز التنبيهات', '🔔 Alerts Center'], ctx => {
     const l = lang(ctx);
     return ctx.reply(l === 'en' ? '🔔 Alerts Center' : '🔔 مركز التنبيهات', alertsKeyboard(l));
   });
 
-  // Center labels are deliberately different from the actual account details
-  // button (👤 حسابي / 👤 My Account) to avoid a handler collision.
+  // IMPORTANT: only the explicit center labels are handled here.
+  // "👤 حسابي / 👤 My Account" belongs to the account-details handler in
+  // userLegacy.js. Registering it here would swallow that action because
+  // navigationCenters is registered first in app.js.
   bot.hears(['👤 مركز الحساب', '👤 Account Center'], ctx => {
-    const l = lang(ctx);
-    return ctx.reply(l === 'en' ? '👤 Account Center' : '👤 مركز الحساب', accountKeyboard(l));
-  });
-
-  // Backward compatibility with keyboards already visible on Telegram.
-  // Old main-menu labels still open their centers until the next keyboard refresh.
-  bot.hears(['👤 حسابي', '👤 My Account'], ctx => {
     const l = lang(ctx);
     return ctx.reply(l === 'en' ? '👤 Account Center' : '👤 مركز الحساب', accountKeyboard(l));
   });
