@@ -29,6 +29,7 @@ const registerSupportCenter = require('./commands/supportCenter');
 const vipCentersGate = require('./middleware/vipCentersGate');
 const vipPaymentProofGate = require('./middleware/vipPaymentProofGate');
 const subscriptionHelpButton = require('./middleware/subscriptionHelpButton');
+const goldTradeCheckV2 = require('./middleware/goldTradeCheckV2');
 const registerAdminCommands = require('./admin/adminCommands');
 const registerTradeAdminControls = require('./admin/tradeAdminControls');
 const { registerAdminV21 } = require('./admin/adminControlCenterV21');
@@ -97,7 +98,7 @@ function resetPerformanceHistoryOnce() {
 async function main() {
   console.log('Starting Telegram Forex AI bot...');
   if (!config.botToken) { console.error('BOT_TOKEN is required. Copy .env.example to .env and configure it.'); process.exit(1); }
-  await db.ready; initDatabase(); resetPerformanceHistoryOnce(); removeLegacyGoldPowerData(); console.log('Database is ready.'); 
+  await db.ready; initDatabase(); resetPerformanceHistoryOnce(); removeLegacyGoldPowerData(); console.log('Database is ready.');
   const bot = new Telegraf(config.botToken); installTelegramMarketHashtags(bot);
   await bot.telegram.setMyCommands([
     { command: 'start', description: '🚀 Start / بدء' }, { command: 'menu', description: '📋 Main menu / القائمة الرئيسية' },
@@ -115,6 +116,7 @@ async function main() {
   bot.use(subscriptionHelpButton());
   bot.use(vipPaymentProofGate());
   bot.use(vipCentersGate());
+  bot.use(goldTradeCheckV2());
   registerStart(bot); registerSettings(bot); registerAlerts(bot); registerTrendHunter(bot); registerOpportunityRadar(bot); registerAdaptiveIntelligence(bot); registerTradingCommandCenter(bot); registerShadowAudit(bot); registerReport14(bot); registerMarketMap(bot); registerStrategyLab(bot); registerSlashCommands(bot); registerReferralId(bot); registerGoldAvailableTrades(bot); registerDailyGoldPlan(bot); registerGoldZoneRadar(bot); registerTradingAcademy(bot); registerNavigationCenters(bot); registerSupportCenter(bot); registerVipOffer(bot); registerUserCommands(bot); registerPerformance(bot); registerLiveAudit7(bot); registerAdminCommands(bot); registerTradeAdminControls(bot); registerAdminV21(bot);
   console.log('Commands are registered.');
   bot.catch((error, ctx) => { console.error(`Bot error for update ${ctx.update.update_id}:`, error); ctx.reply('حدث خطأ مؤقت / Temporary error. Try again.').catch(() => null); });
