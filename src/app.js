@@ -6,6 +6,7 @@ const initDatabase = require('./database/init');
 const db = require('./database/db');
 const registerStart = require('./commands/start');
 const registerUserCommands = require('./commands/user');
+const registerVipOffer = require('./commands/vipOffer');
 const registerReferralId = require('./commands/referralId');
 const registerPerformance = require('./commands/performance');
 const registerSlashCommands = require('./commands/slashCommands');
@@ -109,7 +110,7 @@ async function main() {
   bot.use(async (ctx, next) => { const maintenance = getAdminBoolSetting('maintenance_mode', false); const isAdmin = (config.adminIds || []).map(String).includes(String(ctx.from?.id)); if (maintenance && !isAdmin) return ctx.reply('🛠️ FOREX AI تحت الصيانة حاليًا. حاول مرة أخرى بعد قليل.\n\nMaintenance Mode is active.'); return next(); });
   bot.use(languageRouter());
   bot.use(vipCentersGate());
-  registerStart(bot); registerSettings(bot); registerAlerts(bot); registerTrendHunter(bot); registerOpportunityRadar(bot); registerAdaptiveIntelligence(bot); registerTradingCommandCenter(bot); registerShadowAudit(bot); registerReport14(bot); registerMarketMap(bot); registerStrategyLab(bot); registerSlashCommands(bot); registerReferralId(bot); registerGoldAvailableTrades(bot); registerDailyGoldPlan(bot); registerGoldZoneRadar(bot); registerTradingAcademy(bot); registerNavigationCenters(bot); registerUserCommands(bot); registerPerformance(bot); registerLiveAudit7(bot); registerAdminCommands(bot); registerTradeAdminControls(bot); registerAdminV21(bot);
+  registerStart(bot); registerSettings(bot); registerAlerts(bot); registerTrendHunter(bot); registerOpportunityRadar(bot); registerAdaptiveIntelligence(bot); registerTradingCommandCenter(bot); registerShadowAudit(bot); registerReport14(bot); registerMarketMap(bot); registerStrategyLab(bot); registerSlashCommands(bot); registerReferralId(bot); registerGoldAvailableTrades(bot); registerDailyGoldPlan(bot); registerGoldZoneRadar(bot); registerTradingAcademy(bot); registerNavigationCenters(bot); registerVipOffer(bot); registerUserCommands(bot); registerPerformance(bot); registerLiveAudit7(bot); registerAdminCommands(bot); registerTradeAdminControls(bot); registerAdminV21(bot);
   console.log('Commands are registered.');
   bot.catch((error, ctx) => { console.error(`Bot error for update ${ctx.update.update_id}:`, error); ctx.reply('حدث خطأ مؤقت / Temporary error. Try again.').catch(() => null); });
   startScheduler(bot); startBreakingNews(bot); startFedLiveNews(bot); startDailyNewsBrief(bot); startEconomicReleaseWatch(bot); startCryptoNews(bot); startMarketIntelligence(bot); console.log('Scheduler started.');
