@@ -10,6 +10,7 @@ const languageKeyboard = require('../keyboards/language');
 const { requireAdmin } = require('../utils/auth');
 const adminKeyboard = require('../keyboards/admin');
 const { tByLang } = require('../utils/i18n');
+const { trackStart } = require('../services/promoAnalytics');
 
 async function sendWelcome(ctx, user) {
   const language = user.language === 'en' ? 'en' : 'ar';
@@ -34,6 +35,7 @@ ${text.chooseService}`,
 
 function registerStart(bot) {
   bot.command('start', async (ctx) => {
+    trackStart(ctx.from.id, ctx.startPayload);
     let user = createOrUpdateUser(ctx.from, ctx.startPayload);
 
     if (requireAdmin(ctx, true)) {
