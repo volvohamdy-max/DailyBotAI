@@ -60,7 +60,7 @@ const vipKeyboard = () => Markup.inlineKeyboard([
   [Markup.button.callback('💎 $29.99 — شهر / 30 Days', 'vip_monthly')],
   [Markup.button.callback('💎 $74.99 — 3 شهور / 90 Days', 'vip_quarterly')],
   [Markup.button.callback('💎 $249.99 — سنة / 365 Days', 'vip_yearly')],
-  [Markup.button.url('💬 مساعدة الاشتراك / Subscription Help', 'https://t.me/Axiomiexfx_support')]
+  [Markup.button.url('💬 مساعدة الاشتراك / Subscription Help', 'https://t.me/Forexai_support')]
 ]);
 
 module.exports = { mainKeyboard, goldCenterKeyboard, tradingCenterKeyboard, marketKeyboard, advancedToolsKeyboard, alertsKeyboard, accountKeyboard, moreKeyboard, settingsKeyboard, vipKeyboard };
