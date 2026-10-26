@@ -21,7 +21,7 @@ module.exports = {
   vipExpiry: '📅 VIP expiry',
   notSubscribed: 'Not subscribed',
   referralCode: '🔗 Referral code',
-  supportText: '📩 Technical support:\n@Axiomiexfx_support',
+  supportText: '📩 Technical support:\n@Forexai_support',
   vipChoose: 'Choose a VIP plan:',
   helpText: 'ℹ️ Help\n\n/menu Main menu\n/vip VIP subscription\n/ref Referral link\n/status Account status',
   marketMenuTitle: '📊 Market Tools',
