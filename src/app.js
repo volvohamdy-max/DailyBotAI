@@ -27,6 +27,7 @@ const registerTradingAcademy = require('./commands/tradingAcademy');
 const registerNavigationCenters = require('./commands/navigationCenters');
 const vipCentersGate = require('./middleware/vipCentersGate');
 const vipPaymentProofGate = require('./middleware/vipPaymentProofGate');
+const subscriptionHelpButton = require('./middleware/subscriptionHelpButton');
 const registerAdminCommands = require('./admin/adminCommands');
 const registerTradeAdminControls = require('./admin/tradeAdminControls');
 const { registerAdminV21 } = require('./admin/adminControlCenterV21');
@@ -110,6 +111,7 @@ async function main() {
   console.log('Commands menu set');
   bot.use(async (ctx, next) => { const maintenance = getAdminBoolSetting('maintenance_mode', false); const isAdmin = (config.adminIds || []).map(String).includes(String(ctx.from?.id)); if (maintenance && !isAdmin) return ctx.reply('🛠️ FOREX AI تحت الصيانة حاليًا. حاول مرة أخرى بعد قليل.\n\nMaintenance Mode is active.'); return next(); });
   bot.use(languageRouter());
+  bot.use(subscriptionHelpButton());
   bot.use(vipPaymentProofGate());
   bot.use(vipCentersGate());
   registerStart(bot); registerSettings(bot); registerAlerts(bot); registerTrendHunter(bot); registerOpportunityRadar(bot); registerAdaptiveIntelligence(bot); registerTradingCommandCenter(bot); registerShadowAudit(bot); registerReport14(bot); registerMarketMap(bot); registerStrategyLab(bot); registerSlashCommands(bot); registerReferralId(bot); registerGoldAvailableTrades(bot); registerDailyGoldPlan(bot); registerGoldZoneRadar(bot); registerTradingAcademy(bot); registerNavigationCenters(bot); registerVipOffer(bot); registerUserCommands(bot); registerPerformance(bot); registerLiveAudit7(bot); registerAdminCommands(bot); registerTradeAdminControls(bot); registerAdminV21(bot);
