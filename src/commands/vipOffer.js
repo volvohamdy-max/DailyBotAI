@@ -10,7 +10,7 @@ function vipOfferKeyboard(en = false) {
     [Markup.button.callback(en ? '💎 1 Month — $29.99' : '💎 شهر — $29.99', 'vip_monthly')],
     [Markup.button.callback(en ? '🔥 3 Months — $74.99 (Save $15)' : '🔥 3 شهور — $74.99 (وفر $15)', 'vip_quarterly')],
     [Markup.button.callback(en ? '👑 1 Year — $249.99 (Save $110)' : '👑 سنة — $249.99 (وفر $110)', 'vip_yearly')],
-    [Markup.button.url(en ? '💬 Subscription Help' : '💬 مساعدة الاشتراك', 'https://t.me/Axiomiexfx_support')]
+    [Markup.button.url(en ? '💬 Subscription Help' : '💬 مساعدة الاشتراك', 'https://t.me/Forexai_support')]
   ]);
 }
 
@@ -50,6 +50,7 @@ Turn the bot into your complete trading assistant — with a special focus on GO
 
 💳 Payment: USDT — TRC20
 📸 After payment, send the proof in the bot for admin activation.
+💬 Need subscription help? Contact @Forexai_support
 
 ⚠️ FOREX AI provides automated market analysis and decision-support tools. It does not guarantee profit.
 
@@ -90,6 +91,7 @@ Turn the bot into your complete trading assistant — with a special focus on GO
 
 💳 الدفع: USDT — TRC20
 📸 بعد التحويل ابعت إثبات الدفع داخل البوت لتفعيل الاشتراك من الإدارة.
+💬 لو محتاج مساعدة في الاشتراك تواصل مع @Forexai_support
 
 ⚠️ FOREX AI يقدم تحليلات آلية وأدوات مساعدة لاتخاذ القرار، ولا يضمن تحقيق أرباح.
 
