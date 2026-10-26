@@ -21,7 +21,7 @@ module.exports = {
   vipExpiry: '📅 انتهاء الاشتراك',
   notSubscribed: 'غير مشترك',
   referralCode: '🔗 كود الإحالة',
-  supportText: '📩 الدعم الفني:\n@Axiomiexfx_support',
+  supportText: '📩 الدعم الفني:\n@Forexai_support',
   vipChoose: 'اختر خطة VIP:',
   helpText: 'ℹ️ المساعدة\n\n/menu القائمة الرئيسية\n/vip اشتراك VIP\n/ref رابط الإحالة\n/status حالة الحساب',
   marketMenuTitle: '📊 أدوات السوق',
